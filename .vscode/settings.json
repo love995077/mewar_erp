@@ -1,0 +1,10 @@
+{
+  "python.defaultInterpreterPath": "C:/Users/love todawat/chatbotai/env/Scripts/python.exe",
+  "python.analysis.extraPaths": [
+    "C:/Users/love todawat/chatbotai/env/Lib/site-packages"
+  ],
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportMissingImports": "none"
+  },
+  "python-envs.pythonProjects": []
+}
