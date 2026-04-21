@@ -217,15 +217,20 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
     
     # 🎯 STEP 1: FAST-TRACK ID
     if low_q.isdigit() and len(low_q) < 8:
-        try:
-            inv = db.execute(text("SELECT id, name, classification, placement FROM inventories WHERE id = :id"), {"id": int(low_q)}).fetchone()
-            if inv:
-                stock_res = db.execute(text("SELECT SUM(CASE WHEN LOWER(txn_type) = 'in' THEN quantity ELSE -quantity END) FROM stock_transactions WHERE inventory_id = :id"), {"id": inv.id}).scalar()
-                total_qty = float(stock_res or 0)
-                cls = str(inv.classification).lower() if inv.classification else ""
-                m, f, sf = (total_qty, 0, 0) if "machining" in cls else (0, 0, total_qty) if "semi" in cls else (0, total_qty, 0)
-                return {"results": [{"type": "result", "inventory": {"id": inv.id, "name": inv.name, "category": cls.upper(), "placement": inv.placement or "N/A"}, "total_stock": total_qty, "finish_stock": f, "semi_finish_stock": sf, "machining_stock": m}]}
-        except: pass
+        # 🔒 NAYI SECURITY: Fast-Track bhi wahi use kar payega jiske paas Inventory ka access ho
+        allowed_perms = ROLE_PERMISSIONS.get(user_role, [])
+        if user_role in ["superadmin", "super admin"] or "inventory" in allowed_perms:
+            try:
+                inv = db.execute(text("SELECT id, name, classification, placement FROM inventories WHERE id = :id"), {"id": int(low_q)}).fetchone()
+                if inv:
+                    stock_res = db.execute(text("SELECT SUM(CASE WHEN LOWER(txn_type) = 'in' THEN quantity ELSE -quantity END) FROM stock_transactions WHERE inventory_id = :id"), {"id": inv.id}).scalar()
+                    total_qty = float(stock_res or 0)
+                    cls = str(inv.classification).lower() if inv.classification else ""
+                    m, f, sf = (total_qty, 0, 0) if "machining" in cls else (0, 0, total_qty) if "semi" in cls else (0, total_qty, 0)
+                    return {"results": [{"type": "result", "inventory": {"id": inv.id, "name": inv.name, "category": cls.upper(), "placement": inv.placement or "N/A"}, "total_stock": total_qty, "finish_stock": f, "semi_finish_stock": sf, "machining_stock": m}]}
+            except: pass
+        else:
+            return {"results": [{"type": "chat", "message": f"Aapka role '{user_role.title()}' hai. Aapko Item Codes (Inventory) se search karne ki permission nahi hai. 🛑"}]}
 
     # 🚀 STEP 2: PURE AI ENGINE
     try:
