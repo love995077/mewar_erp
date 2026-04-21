@@ -727,3 +727,7 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
         log_query(raw_q, intents, fallback_res)
         
     return fallback_res
+
+
+
+#hello hugging face! This is your friendly neighborhood chatbot router. If you have any questions or need help, just ask!
