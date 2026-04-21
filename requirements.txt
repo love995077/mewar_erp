@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+sqlalchemy
+pymysql
+cryptography
+python-dotenv
+rapidfuzz
+openai
+pydantic
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+streamlit
+#sentence-transformers
+fastembed==0.3.1
+faiss-cpu
+numpy
