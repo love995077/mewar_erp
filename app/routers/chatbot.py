@@ -256,20 +256,7 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
     reasoning = ai_data.get("reasoning") or "hmm ek sec... main check karta hoon 👍"
     final_results = [{"type": "chat", "message": reasoning}]
 
-    # ==========================================
-    # 🛡️ SMART SEATBELT (UPGRADED FOR LISTS & FILTERS)
-    # ==========================================
-    # Agar user koi filter ya list maang raha hai, toh seatbelt nahi lagegi
-    is_project_list_req = any(w in low_q for w in ["all", "saare", "sabhi", "list", "latest", "naya", "running", "chalu", "progress", "completed", "khatam", "hold", "ruka", "refurbished", "purana", "urgent", "normal", "high", "priority"])
-
-    if not original_target:
-        if "supplier_search" in intents and not any(w in low_q for w in ["all", "saare", "list"]):
-            return {"results": [{"type": "chat", "message": "Bhai, kripya thoda clear batao ki aap kis company ki baat kar rahe ho? 🙂"}]}
-        
-        elif "project_search" in intents and not is_project_list_req:
-            return {"results": [{"type": "chat", "message": "Bhai, kripya project ka naam batao, ya fir 'chalu projects', 'urgent projects' likho. 🙂"}]}
-
-    # 🧹 NOISE CLEANER
+   # 🧹 NOISE CLEANER
     noise_words = ["supplier", "vendor", "party", "details", "contact", "profile", "ki", "ka", "ke", "project", "site", "machine"]
     for word in noise_words:
         original_target = re.sub(rf'\b{word}\b', '', original_target, flags=re.IGNORECASE).strip()
@@ -279,13 +266,38 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
     if re.match(r'^sup[-\s]?\d+$', original_target.lower()):
         if "supplier_search" not in intents: intents = ["supplier_search"]
 
-    print(f"✅ FINAL ROUTER DECISION: {intents} | TARGET: {original_target}")
-
+    # ✅ 1. SABSE PEHLE FILTERS DEFINE KARO (Taki Seatbelt use kar sake)
     filters = ai_data.get("filters", {})
     ui_filters = getattr(request, "ui_filters", {}) or {}
     for key, value in ui_filters.items():
         if value: filters[key] = value
     limit = filters.get("limit", 5) or 5
+
+    print(f"✅ FINAL ROUTER DECISION: {intents} | TARGET: {original_target}")
+
+    # ==========================================
+    # 🛡️ SMART SEATBELT (UPGRADED FOR AI FILTERS)
+    # ==========================================
+    is_project_list_req = any(w in low_q for w in [
+        "all", "saare", "sabhi", "list", "latest", "naya", "new", 
+        "running", "chalu", "progress", "completed", "khatam", "done", 
+        "hold", "ruka", "pending", "refurbished", "purana", "repair",
+        "urgent", "normal", "high", "priority",
+        "remaining", "baki", "bache", "kitne", "kitna",
+        "sabse", "bada", "highest", "biggest", "mehenga", "lowest", "chhota", "kam",
+        "late", "overdue", "delay", "dikhao", "batao"
+    ])
+
+    # 🧠 NAYA AI BYPASS LOGIC: Ab ye error nahi dega kyunki 'filters' upar ban chuka hai
+    if filters.get("status") or filters.get("priority"):
+        is_project_list_req = True
+
+    if not original_target:
+        if "supplier_search" in intents and not any(w in low_q for w in ["all", "saare", "list"]):
+            return {"results": [{"type": "chat", "message": "Bhai, kripya thoda clear batao ki aap kis company ki baat kar rahe ho? 🙂"}]}
+        
+        elif "project_search" in intents and not is_project_list_req:
+            return {"results": [{"type": "chat", "message": "Bhai, kripya project ka naam batao, ya fir 'chalu projects', 'urgent projects' likho. 🙂"}]}
 
     # 🚀 TAX & ADVANCE OVERRIDE
     if any(w in low_q for w in ["tax", "gst", "cgst", "sgst", "advance", "adv"]):
@@ -314,7 +326,28 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
             elif intent == "financial_search" and "financials" not in allowed_perms:
                 return {"results": [{"type": "chat", "message": f"Aapka role '{user_role.title()}' hai. Aapko Balance, Taxes ya Financial details dekhne ki permission nahi hai. 🛑"}]}
 
-####
+##### ==========================================
+    # 🧠 AUTO-CORRECT FILTER (TYPO HANDLER 🚀)
+    # ==========================================
+    smart_keywords = [
+        "all", "saare", "sabhi", "pure", "list", "batao", "dikhao", "kitne", "kitna",
+        "running", "chalu", "progress", "chal",
+        "completed", "poora", "khatam", "done",
+        "hold", "ruka", "pending", "remaining", "baki", "bache",
+        "new", "naya", "budget", "paisa", "rupay", "cost", "amount", "mehenga",
+        "deadline", "target", "kab tak", "time", "din",
+        "stage", "percent", "status",
+        "sabse", "bada", "highest", "biggest", "lowest", "chhota", "kam",
+        "late", "overdue", "delay"
+    ]
+    
+    fixed_words = []
+    for word in low_q.split():
+        matches = difflib.get_close_matches(word, smart_keywords, n=1, cutoff=0.8)
+        fixed_words.append(matches[0] if matches else word)
+            
+    low_q = " ".join(fixed_words)
+    # ==========================================
 
 
     # =========================================================
@@ -322,7 +355,7 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
     # =========================================================
     for intent in intents:
         
-        # ---------------------------------------------------------
+       # ---------------------------------------------------------
         # 📁 BRANCH 1: PROJECT LOGIC (FULLY UPGRADED 🚀)
         # ---------------------------------------------------------
         if intent == "project_search":
@@ -332,7 +365,8 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
                 projs = []
                 
                 # 🧠 1. NLP OVERRIDES (Sentence-based limits)
-                if any(w in low_q for w in ["all", "saare", "sabhi", "pure", "list", "batao"]): 
+                # ✅ FIX 1: 'kitne', 'kitna', 'dikhao' add kiya gaya hai
+                if any(w in low_q for w in ["all", "saare", "sabhi", "pure", "list", "batao", "kitne", "kitna", "dikhao"]): 
                     limit = 50
                 if any(w in low_q for w in ["last", "latest", "naya", "new"]): 
                     limit = 1
@@ -345,38 +379,85 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
                         projs = [big_proj] 
                         target = "SKIP_SEARCH" 
                 
-                # 🔍 3. NORMAL SEARCH & FILTERS
+               # 🔍 3. NORMAL SEARCH & FILTERS
                 if target != "SKIP_SEARCH":
-                    active_status = str(filters.get("status") or "").lower().strip()
-                    active_priority = str(filters.get("priority") or "").lower().strip()
+                    # ✅ 1. Sabse pehle Flags ko 'False' set karo (Taki koi purana data na rahe)
                     is_refurbished = False 
+                    is_time_remaining = False
+                    is_overdue = False
                     
-                    # 🔹 NLP STATUS CHECK
-                    if any(w in low_q for w in ["running", "chalu", "progress", "chal"]): active_status = "in progress"
-                    elif any(w in low_q for w in ["completed", "poora", "khatam", "done"]): active_status = "completed"
-                    elif any(w in low_q for w in ["hold", "ruka", "pending"]): active_status = "hold"
-                    elif any(w in low_q for w in ["new", "naya"]): active_status = "new"
+                    raw_status = str(filters.get("status") or "").lower().strip()
+                    active_priority = str(filters.get("priority") or "").lower().strip()
+
+                    # 🛠️ 2. MAPPING DICTIONARY (Updated)
+                    status_mapping = {
+                        "in progress": "in_progress",
+                        "in_progress": "in_progress",
+                        "on_hold": "hold",
+                        "pending": "hold",
+                        "completed": "completed",
+                        "new_project": "new",
+                        "new": "new",
+                        "refurbished": "refurbished", # 👈 Add this
+                        "remaining": "remaining",     # 👈 Add this
+                        "overdue": "overdue"         # 👈 Add this
+                    }
+                    active_status = status_mapping.get(raw_status, raw_status)
+
+                    # 🧠 3. AI DRIVEN LOGIC (AI Brain ke decision ko Flags mein badlo)
+                    if active_status == "refurbished":
+                        is_refurbished = True
+                        active_status = "" 
+                    elif active_status == "remaining":
+                        is_time_remaining = True
+                        active_status = ""
+                    elif active_status == "overdue":
+                        is_overdue = True
+                        active_status = ""
+
+                    # 🔹 4. NLP CHECKS (Ab ye sirf backup ki tarah kaam karenge)
+                    if any(w in low_q for w in ["running", "chalu", "progress", "chal"]): 
+                        active_status = "in_progress"
+                    elif any(w in low_q for w in ["completed", "poora", "khatam", "done"]): 
+                        active_status = "completed"
+                    elif any(w in low_q for w in ["hold", "ruka", "pending"]): 
+                        active_status = "hold"
+                    elif any(w in low_q for w in ["new", "naya"]): 
+                        active_status = "new"
                     
-                    # 🔹 NLP REFURBISHED CHECK (Independent of Status)
+                    # ✅ FIX: Yahan 'is_refurbished = True' sirf 'if' ke andar hai
                     if any(w in low_q for w in ["refurbished", "purana", "repair"]): 
                         is_refurbished = True
 
-                    # 🔹 NLP PRIORITY CHECK
-                    if any(w in low_q for w in ["urgent", "emergency", "fast"]): active_priority = "urgent"
-                    elif any(w in low_q for w in ["high"]): active_priority = "high"
-                    elif any(w in low_q for w in ["normal"]): active_priority = "normal"
-                    
+                    # ✅ 5. TIME CHECKS (Sirf tab jab AI ne upar set na kiya ho)
+                    if not is_time_remaining and any(w in low_q for w in ["remaining", "baki", "bache"]):
+                        is_time_remaining = True
+                        active_status = ""
+                        limit = 50
+                    elif not is_overdue and any(w in low_q for w in ["late", "overdue", "delay"]):
+                        is_overdue = True
+                        active_status = ""
+                        limit = 50
+
                     # 🧹 4. CLEANUP: Ignore words (Inko project ka naam mat samjho)
                     ignore_words = [
                         "all", "list", "projects", "latest", "project", "site", 
-                        "refurbished", "purana", "running", "chalu", "progress", 
+                        "refurbished", "purana", "repair", "running", "chalu", "progress", 
                         "completed", "poora", "khatam", "hold", "ruka", "new", "naya", 
-                        "urgent", "emergency", "high", "normal", "priority", "batao", "dikhao"
+                        "urgent", "emergency", "high", "normal", "priority", "batao", "dikhao",
+                        "kitne", "kitna", "remaining", "baki", "bache", "late", "overdue", "delay"
                     ]
+                    
+                    # 🛡️ SUPER FOOLPROOF CHECK: Agar target mein refurbish/purana hai, toh usey clear karo
+                    if "refurb" in target_lower or "purana" in target_lower:
+                        target = ""
+                        limit = 50
+                        is_refurbished = True # Double safety check
+
                     if target_lower in ignore_words:
                         target = "" 
-                        limit = 50  
-                        
+                        limit = 50
+
                     # 🏗️ 5. BUILD THE QUERY
                     query = "SELECT * FROM projects WHERE is_deleted = 0"
                     params = {}
@@ -401,6 +482,19 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
                         params["sd"] = filters["from_date"]
                         params["ed"] = filters["to_date"]
 
+                    # ✅ Asli COUNTDOWN (Remaining) & LATE (Overdue) filter
+                    if is_time_remaining or is_overdue:
+                        import datetime
+                        today_str = datetime.date.today().strftime('%Y-%m-%d')
+                        if is_time_remaining:
+                            # Wo projects dikhao jinki end_date aaj ya aaj ke baad ki hai (Time bacha hai)
+                            query += " AND (end_date >= :today OR deadline >= :today)"
+                            params["today"] = today_str
+                        elif is_overdue:
+                            # Wo projects jo late hain (date nikal gayi aur complete nahi hue)
+                            query += " AND (end_date < :today OR deadline < :today) AND LOWER(status) != 'completed'"
+                            params["today"] = today_str
+
                     # Name / Comment search
                     if target:
                         words = target_lower.split()
@@ -410,36 +504,101 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
 
                     # 🚀 6. EXECUTE SEARCH
                     projs = db.execute(text(query + f" ORDER BY id DESC LIMIT :limit"), {**params, "limit": limit}).fetchall()
-
+                    
                     # 🧠 FAISS Fallback
                     if not projs and target and len(target) > 3:
                         corrected_name = smart_match(target, category="project")
                         if corrected_name and corrected_name.lower() != target_lower:
                             projs = db.execute(text(f"SELECT * FROM projects WHERE is_deleted = 0 AND LOWER(name) LIKE :cn LIMIT :limit"), {"cn": f"%{corrected_name.lower()}%", "limit": limit}).fetchall()
 
-                # 💬 7. RENDER RESULTS
+                # 💬 7. RENDER RESULTS (TALKATIVE VERSION 🗣️)
                 if not projs:
                     status_text = f" '{active_status}' " if active_status else " "
                     final_results.append({"type": "chat", "message": f"Bhai, lagta hai{status_text}wala koi project abhi nahi mil raha. 🧐"})
-                else:
-                    if target != "SKIP_SEARCH":
-                        final_results.append({"type": "chat", "message": f"haan mil gaya 👍 Mujhe **{len(projs)} projects** mile hain:"})
+                
+                elif len(projs) == 1:
+                    p = projs[0]
+                    p_name = str(p.name)
                     
+                    # 🛠️ 1. Refurbished Check
+                    machine_type = "Refurbished (Purani/Repair) 🛠️" if getattr(p, 'refurbish', 0) == 1 else "New Machine 🆕"
+                    
+                    # ⏳ 2. Remaining Time Logic
+                    remaining_str = ""
+                    target_date = p.end_date or p.deadline
+                    if target_date:
+                        try:
+                            import datetime
+                            t_date = datetime.datetime.strptime(str(target_date), '%Y-%m-%d').date() if isinstance(target_date, str) else target_date
+                            days_left = (t_date - datetime.date.today()).days
+                            
+                            if days_left > 0: remaining_str = f" ⏳ (Abhi **{days_left} din** bache hain)"
+                            elif days_left == 0: remaining_str = f" 🚨 (Deadline **AAJ** hai!)"
+                            else: remaining_str = f" ⚠️ (Deadline **{abs(days_left)} din** pehle nikal chuki hai!)"
+                        except: pass
+                    
+                    # 🗣️ PROJECT SPECIFIC TALKATIVE LOGIC
+                    detail_msg = None
+                    show_full_card = False
+
+                    # ✅ NAYA LOGIC: Agar user "sab", "han" ya "details" maange toh Card flag ON karo
+                    # ✅ NAYA LOGIC: .split() lagaya taaki "sabse" ko "sab" na samjhe
+                    if any(w in low_q.split() for w in ["sab", "sabhi", "puri", "poori", "detail", "details", "all", "pura", "han", "haan", "yes"]):
+                        show_full_card = True
+                    elif any(w in low_q for w in ["budget", "paisa", "rupay", "cost", "amount", "mehenga"]):
+                        detail_msg = f"💰 **{p_name}** ka total budget **₹{float(p.budget or 0):,.2f}** set kiya gaya hai."
+                    elif any(w in low_q for w in ["deadline", "khatam", "date", "target", "kab tak", "time", "bache", "din"]):
+                        detail_msg = f"📅 **{p_name}** ki target deadline **{str(target_date or 'N/A')}** hai.{remaining_str}"
+                    elif any(w in low_q for w in ["stage", "progress", "kaha pahuncha", "percent", "status"]):
+                        status_now = str(p.status).lower()
+                        auto_stage = "100%" if status_now == "completed" else "50%" if status_now == "in_progress" else "0%"
+                        actual_stage = getattr(p, 'stage', auto_stage)
+                        detail_msg = f"🏗️ **{p_name}** abhi **'{str(p.status).replace('_', ' ').capitalize()}'** status par hai aur lagbhag **{actual_stage}** complete ho chuka hai."
+                    elif any(w in low_q for w in ["type", "machine", "refurbished", "purana", "naya", "new"]):
+                        detail_msg = f"⚙️ Ye ek **{machine_type}** wala project hai."
+
+                    # ✅ DECISION MAKING (Dikhana kya hai?)
+                    if show_full_card:
+                        # Pura Card Generate karo
+                        type_tag = "Refurbished" if getattr(p, 'refurbish', 0) == 1 else "New Machine"
+                        status_now = str(p.status).lower()
+                        auto_stage = "100%" if status_now == "completed" else "50%" if status_now == "in_progress" else "Hold" if status_now == "hold" else "0%"
+                        
+                        card_data = {
+                            "type": "project", "project_name": str(p.name),
+                            "category": f"{type_tag} | {str(p.status).replace('_', ' ').capitalize()}", "amount": float(p.budget or 0),
+                            "start_date": str(p.start_date) if p.start_date else "N/A", "end_date": str(p.end_date or p.deadline or "N/A"),
+                            "comments": str(p.comment or ""), "stage": getattr(p, 'stage', auto_stage), "priority": str(p.priority).upper()
+                        }
+                        final_results.append({"type": "chat", "message": f"Lijiye bhai, **{p_name}** ki poori details 📋:"})
+                        final_results.append(card_data) # Card UI render ho jayega
+                        
+                    elif detail_msg:
+                        final_results.append({"type": "chat", "message": detail_msg + "\n\n💡 *Kya aap is project ki baaki details dekhna chahte hain? (Type: Sab)*"})
+                    else:
+                        msg = f"Bhai, mujhe **{p_name}** system mein mil gaya hai. Ye ek **{machine_type}** project hai.\nAap iska kya dekhna chahte hain?\n\n" \
+                              f"💰 Type **'Budget'**\n" \
+                              f"📅 Type **'Deadline'**\n" \
+                              f"🏗️ Type **'Stage'**\n" \
+                              f"📋 Type **'Sab'** *(Poori detail ka card dekhne ke liye)*"
+                        final_results.append({"type": "chat", "message": msg})
+
+                else:
+                    final_results.append({"type": "chat", "message": f"haan mil gaya 👍 Mujhe **{len(projs)} projects** mile hain:"})
                     proj_results = []
                     for p in projs:
                         type_tag = "Refurbished" if getattr(p, 'refurbish', 0) == 1 else "New Machine"
                         status_now = str(p.status).lower()
-                        auto_stage = "100%" if status_now == "completed" else "50%" if status_now == "in progress" else "Hold" if status_now == "hold" else "0%"
+                        auto_stage = "100%" if status_now == "completed" else "50%" if status_now == "in_progress" else "Hold" if status_now == "hold" else "0%"
                         
                         proj_results.append({
                             "type": "project", "project_name": str(p.name),
-                            "category": f"{type_tag} | {str(p.status).capitalize()}", "amount": float(p.budget or 0),
+                            "category": f"{type_tag} | {str(p.status).replace('_', ' ').capitalize()}", "amount": float(p.budget or 0),
                             "start_date": str(p.start_date) if p.start_date else "N/A", "end_date": str(p.end_date or p.deadline or "N/A"),
                             "comments": str(p.comment or ""), "stage": getattr(p, 'stage', auto_stage), "priority": str(p.priority).upper()
                         })
                     final_results.extend(proj_results)
             except Exception as e: final_results.append({"type": "chat", "message": f"Project Error: {str(e)}"})
-
         # ---------------------------------------------------------
         # 🏭 BRANCH 2: SUPPLIER LOGIC (TALKATIVE)
         # ---------------------------------------------------------
