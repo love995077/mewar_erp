@@ -1,6 +1,8 @@
 
 ## to ativate 
-"D:/Shifting Folder/chatbotai/env/Scripts/Activate.ps1" 
+"D:/Shifting Folder/chatbotai/env/Scripts/Activate.ps1"
+
+.\env\Scripts\activate 
 
 ## to run 
 uvicorn app.main:app --reload

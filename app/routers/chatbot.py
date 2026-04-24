@@ -16,6 +16,7 @@ import difflib
 #from rapidfuzz import process, fuzz
 #import jellyfish
 import json
+import os
 from app.services.ollama_engine import ask_ollama
 
 router = APIRouter(prefix="/chatbot", tags=["Chatbot"])
@@ -190,22 +191,35 @@ def clean_target_ultimate(target: str):
     cleaned = [w for w in words if w.lower() not in noise]
     return " ".join(cleaned) if cleaned else target
 
-# --- Existing helpers ---
-def log_query(query, intent, result):
+# --- MASTER CHATBOT LOGGER 📊 ---
+def log_query_pro(user_role, query, intents, final_results, process_time):
+    bot_reply = "No Response"
+    if isinstance(final_results, dict) and "results" in final_results:
+        for res in final_results["results"]:
+            if res.get("type") == "chat":
+                bot_reply = res.get("message", "")
+                break 
+    
+    is_fail = any(w in str(bot_reply).lower() for w in ["nahi mila", "error", "samajh nahi", "maaf kijiye", "kripya", "permission nahi"])
+    
     log_entry = {
-        "timestamp": datetime.now().isoformat(),
-        "query": query,
-        "intent": intent,
-        "is_fail": any(w in str(result).lower() for w in ["nahi mila", "not found", "error", "samajh nahi"]) or not result
+        "date_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "role": user_role,
+        "user_query": query,
+        "intent": str(intents),
+        "bot_response": bot_reply,
+        "time_taken_sec": round(process_time, 2),
+        "status": "Fail ❌" if is_fail else "Success ✅"
     }
     try:
-        with open("logs.json", "a") as f:
-            f.write(json.dumps(log_entry) + "\n")
+        with open("chat_history.json", "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
     except Exception as e:
-        print(f"❌ Logging Error: {e}")
+        print(f"❌ File Log Error: {e}")
 
 @router.post("/")
 def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
+    start_time = time.time()
     load_faiss_once(db)
     raw_q = request.query.strip()
     low_q = raw_q.lower()
@@ -862,35 +876,79 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
     
     # 1. Multiple Results Fallback (Without AI Confusion)
     if len(final_results) > 1:
-        return {"results": final_results[:limit + 2]}
-    
-    # 2. Language Detection
-    is_english = any(word in low_q for word in ["what", "how", "show", "list", "get", "who", "where", "tell", "check"])
-    
-    # 3. Smart Suggestion Logic (Merging your Project/Paisa logic)
-    if is_english:
-        if "project" in low_q or "site" in low_q:
-            suggestion_text = "It seems you are looking for **Project** info. Please provide the project name."
-        elif any(w in low_q for w in ["money", "balance", "account", "due"]):
-            suggestion_text = "Do you want to check a supplier's **Balance**? Please type the party name."
-        else:
-            suggestion_text = "I'm sorry, I couldn't quite understand that. 😅\n\nYou can ask about:\n1. **Purchase Orders** (e.g., 'Show latest PO')\n2. **Inventory** (e.g., 'Check bearing stock')\n3. **Suppliers** (e.g., 'Supplier details')"
+        final_response = {"results": final_results[:limit + 2]}
     else:
-        # older Logic
-        if "project" in low_q or "site" in low_q:
-            suggestion_text = "lagta hai aap **Projects** ki jankari chahte hain. Kripya us project ka naam batayein."
-        elif any(w in low_q for w in ["paisa", "balance", "hisab", "rokra"]):
-            suggestion_text = "Kya aap kisi Supplier ka **Balance** check karna chahte hain? Kripya party ka naam likhein."
-        else:
-            suggestion_text = "Maaf kijiye, main abhi theek se samajh nahi paaya. 😅\n\nAap inme se kuch poochna chahte hain?\n1. **Purchase Orders** (e.g., 'Latest PO dikhao')\n2. **Inventory** (e.g., 'Stock check karo')\n3. **Suppliers**"
-
-    fallback_res = {"results": [{"type": "chat", "message": suggestion_text}]}
-    
-    # 4. Logging (Aapka purana function)
-    if 'log_query' in globals() or 'log_query' in locals():
-        log_query(raw_q, intents, fallback_res)
+        # 2. Language Detection
+        is_english = any(word in low_q for word in ["what", "how", "show", "list", "get", "who", "where", "tell", "check"])
         
-    return fallback_res
+        # 3. Smart Suggestion Logic
+        if is_english:
+            if "project" in low_q or "site" in low_q:
+                suggestion_text = "It seems you are looking for **Project** info. Please provide the project name."
+            elif any(w in low_q for w in ["money", "balance", "account", "due"]):
+                suggestion_text = "Do you want to check a supplier's **Balance**? Please type the party name."
+            else:
+                suggestion_text = "I'm sorry, I couldn't quite understand that. 😅\n\nYou can ask about:\n1. **Purchase Orders**\n2. **Inventory**\n3. **Suppliers**"
+        else:
+            if "project" in low_q or "site" in low_q:
+                suggestion_text = "lagta hai aap **Projects** ki jankari chahte hain. Kripya us project ka naam batayein."
+            elif any(w in low_q for w in ["paisa", "balance", "hisab", "rokra"]):
+                suggestion_text = "Kya aap kisi Supplier ka **Balance** check karna chahte hain? Kripya party ka naam likhein."
+            else:
+                suggestion_text = "Maaf kijiye, main abhi theek se samajh nahi paaya. 😅\n\nAap inme se kuch poochna chahte hain?\n1. **Purchase Orders**\n2. **Inventory**\n3. **Suppliers**"
+
+        final_response = {"results": [{"type": "chat", "message": suggestion_text}]}
+    
+    # 4. Logging (Naya Pro Logger 📊)
+    process_time = time.time() - start_time
+    try:
+        log_query_pro(user_role, raw_q, intents, final_response, process_time)
+    except Exception as e:
+        print(f"Logger Crash Prevented: {e}")
+        
+    return final_response
+
+# ---------------------------------------------------------
+# 🕵️‍♂️ SECRET LOGS ENDPOINT (Live browser me dekhne ke liye)
+# ---------------------------------------------------------
+@router.get("/logs")
+def view_live_logs():
+    log_file = "chat_history.json"
+    if not os.path.exists(log_file):
+        return {"message": "Bhai, abhi tak koi chat nahi hui hai. File empty hai! 🤷‍♂️"}
+    
+    try:
+        with open(log_file, "r", encoding="utf-8") as f:
+            logs = [json.loads(line) for line in f.readlines() if line.strip()]
+            
+        return {
+            "total_chats": len(logs),
+            "latest_logs": logs[::-1]  # Sabse naye messages sabse upar dikhenge
+        }
+    except Exception as e:
+        return {"error": f"Logs padhne me dikkat aayi: {str(e)}"}
+    
+# 🗑️ SECRET LOGS CLEAR ENDPOINT (Sirf Admin ke liye)
+@router.delete("/logs/clear")
+def clear_live_logs(secret_key: str = "mewar123"):
+    # 🔒 Security Check (Passkey change kar lena apne hisaab se)
+    if secret_key != "mewar@12345":
+        return {"error": "Bhai, galat password! Aapko logs delete karne ki permission nahi hai. 🛑"}
+    
+    log_file = "chat_history.json"
+    
+    # 1. Agar file pehle se nahi hai
+    if not os.path.exists(log_file):
+        return {"message": "Logs pehle se hi khaali hain! ✨"}
+    
+    try:
+        # 2. File ko "w" (write) mode mein kholo jisse purana data ud jayega
+        with open(log_file, "w", encoding="utf-8") as f:
+            f.write("") # Khaali string daal do
+            
+        return {"success": True, "message": "Saare logs safalta-purvak delete ho gaye hain! 🧹✨"}
+    except Exception as e:
+        return {"error": f"Logs delete karne mein dikkat aayi: {str(e)}"}
 
 
 
