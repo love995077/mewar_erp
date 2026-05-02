@@ -76,7 +76,7 @@ def render_bot_response(data, msg_idx):
         elif res_type == "po":
             st.info(f"🧾 **Purchase Order: {res.get('po_no')}**")
             st.write(f"**Supplier:** {res.get('supplier')}")
-            st.caption(f"📅 **Date:** {res.get('date')}")
+            st.caption(f"📅 **Date:** {res.get('date')} | **Status:** {res.get('status', 'N/A')}")
             
             c1, c2, c3 = st.columns(3)
             c1.metric("Total Amount", f"₹{res.get('total', 0):,.2f}")
@@ -87,6 +87,13 @@ def render_bot_response(data, msg_idx):
                 c3.error(f"Balance: ₹{balance:,.2f}")
             else:
                 c3.success(f"Balance: ₹0.00")
+                
+            # 🔗 DIRECT LINK BUTTON LOGIC
+            if "view_link" in res:
+                base_url = "https://erp-warrgyizmorsch.londonstreetstore.com"
+                full_link = f"{base_url}{res['view_link']}"
+                st.link_button("👁️ View Invoice", full_link)
+                
             st.write("---")
 
         # 📁 CASE 4: PROJECT RESULT (Upgraded with Stage & Comments)
@@ -168,8 +175,131 @@ def render_bot_response(data, msg_idx):
                     st.bar_chart(df.set_index("Name")["Stock"])
             else:
                 st.info("No data available for this report.")
+
+        # ==========================================
+        # 📝 CASE 8: DYNAMIC REQUEST SLIP FORM (NEW!)
+        # ==========================================
+        elif res_type == "rs_form":
+            if "rs_item_count" not in st.session_state:
+                st.session_state.rs_item_count = 1
+
+            with st.container(border=True):
+                st.markdown(f"### 📝 {res.get('message', 'New Request Slip')}")
+                st.markdown("---")
+                
+                # 1. Projects List
+                project_names = [p['name'] for p in res.get('projects', [])]
+                
+                # 2. Smart Pre-fill Logic
+                prefill_idx = 0
+                prefill_proj = res.get("prefill_project")
+                if prefill_proj:
+                    for idx, p_name in enumerate(project_names):
+                        if prefill_proj.lower() in p_name.lower():
+                            prefill_idx = idx
+                            break
+
+                # 3. Top Row: Date & Project
+                col1, col2 = st.columns(2)
+                with col1:
+                    today_date = datetime.date.today().strftime("%d-%m-%Y")
+                    st.text_input("DATE *", value=today_date, disabled=True)
+                with col2:
+                    selected_project = st.selectbox("PROJECT *", project_names, index=prefill_idx, key=f"proj_{msg_idx}")
+
+                # 🧠 THE MAGIC: Filter Machines and Inventory based on Selected Project!
+                # Project ID nikalo
+                selected_proj_id = None
+                for p in res.get('projects', []):
+                    if p['name'] == selected_project:
+                        selected_proj_id = p['id']
+                        break
+                
+                # Machine Filter (ID aur Name dono rakho)
+                filtered_machines = [{"id": "0", "name": "Select Machine"}]
+                for m in res.get('machines', []):
+                    if m.get('project_id') == selected_proj_id:
+                        # Sirf unique naam add karo
+                        if not any(d['name'] == m['name'] for d in filtered_machines):
+                            filtered_machines.append(m)
+                            
+                # Inventory Filter
+                filtered_inv = [{"id": "0", "name": "Select Item"}]
+                for i in res.get('inventory', []):
+                    # Agar project_id match kare, YA project_id ho hi na (Global item)
+                    if i.get('project_id') == selected_proj_id or i.get('project_id') is None:
+                        if not any(d['name'] == i['name'] for d in filtered_inv):
+                            filtered_inv.append(i)
+
+                st.markdown("##### Add Items")
+                
+                # 4. Dynamic Items Generator (CASCADING DROPDOWNS)
+                item_data = []
+                for i in range(st.session_state.rs_item_count):
+                    with st.expander(f"Item #{i+1}", expanded=True):
+                        c1, c2, c3 = st.columns([2, 2, 1])
+                        
+                        # A. Machine Select Box
+                        with c1:
+                            mach_sel = st.selectbox(
+                                "MACHINE", 
+                                options=filtered_machines, 
+                                format_func=lambda x: x['name'],
+                                key=f"mach_{msg_idx}_{i}"
+                            )
+                        
+                        # 🧠 CASCADING LOGIC: Filter Inventory based on selected Machine OR Project
+                        row_filtered_inv = [{"id": "0", "name": "Select Item"}]
+                        
+                        if mach_sel['id'] != "0": # Agar machine select ho gayi hai
+                            for inv in res.get('inventory', []):
+                                # Agar backend se machine_id aayi hai aur match kar rahi hai
+                                if inv.get('machine_id') == mach_sel['id']:
+                                    if not any(d['id'] == inv['id'] for d in row_filtered_inv):
+                                        row_filtered_inv.append(inv)
+                                        
+                                # Ya fir project_id se match kar rahi hai
+                                elif inv.get('project_id') == selected_proj_id:
+                                    if not any(d['id'] == inv['id'] for d in row_filtered_inv):
+                                        row_filtered_inv.append(inv)
+                        
+                        # B. Inventory Select Box (Filtered automatically!)
+                        with c2:
+                            inv_sel = st.selectbox(
+                                "INVENTORY", 
+                                options=row_filtered_inv,
+                                format_func=lambda x: x['name'],
+                                key=f"inv_{msg_idx}_{i}"
+                            )
+                            
+                        # C. Quantity Box
+                        with c3:
+                            qty = st.number_input("QTY", min_value=1, step=1, key=f"qty_{msg_idx}_{i}")
+                        
+                        item_data.append({"machine": mach_sel, "inventory": inv_sel, "qty": qty})
+                
+                # 5. Action Buttons
+                col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
+                with col_btn1:
+                    if st.button("➕ Add Item", key=f"add_btn_{msg_idx}"):
+                        st.session_state.rs_item_count += 1
+                        st.rerun() 
+                
+                with col_btn3:
+                    if st.button("✅ Save Request Slip", type="primary", key=f"save_btn_{msg_idx}"):
+                        # Validations (Check if default '0' is not selected)
+                        valid_items = [item for item in item_data if item['machine']['id'] != "0" and item['inventory']['id'] != "0"]
+                        
+                        if not valid_items:
+                            st.error("Bhai, kam se kam 1 valid Machine aur Inventory item select karo!")
+                        else:
+                            st.success(f"🎉 Success! Request Slip ready for '{selected_project}' with {len(valid_items)} items.")
+                            # Yahan hum agla step likhenge API call ke liye
+                            st.write(valid_items) # Test ke liye output print karega
+                            st.session_state.rs_item_count = 1
+                            
         
-        # 💬 CASE 8: Simple Text
+        # 💬 CASE 9: Simple Text
         elif "message" in res and not res_type:
             st.write(res["message"])
         elif res_type == "chat":

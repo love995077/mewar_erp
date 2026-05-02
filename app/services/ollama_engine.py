@@ -104,6 +104,13 @@ AI: {{ "intents": ["po_search"], "search_target": "", "filters": {{ "status": "d
 User: "DCL ki detail aur uske orders"
 AI: {{ "intents": ["supplier_search", "po_search"], "search_target": "DCL", "reasoning": "haan bhai dono nikaal deta hoon 👍 pehle unki detail aur phir orders dekhte hain." }}
 
+# REQUEST SLIP (ACTION)
+User: "Sonapur cement ki slip banao"
+AI: {{ "intents": ["create_rs"], "search_target": "Sonapur cement", "reasoning": "hmm ek sec... main Sonapur cement ke liye Request Slip ka form ready karta hoon 📝" }}
+
+User: "bhai ek rs issue karni hai"
+AI: {{ "intents": ["create_rs"], "search_target": "", "reasoning": "haan bhai bilkul 👍 main form kholta hoon, aap usme details bhar dena." }}
+
 --- 🛡️ INTENT MAPPING ---
 - "search" → inventory
 - "supplier_search" → supplier
@@ -111,6 +118,7 @@ AI: {{ "intents": ["supplier_search", "po_search"], "search_target": "DCL", "rea
 - "po_search" → orders
 - "financial_search" → checking balance, advance, taxes, rokra, paisa
 - "clarify" → unclear input
+- "create_rs" → If user asks to create/make a "slip", "request slip", or "rs" (e.g., "slip banao"). Extract Project or Machine Name as 'search_target' (e.g., for "Sonapur cement ki slip", target is "Sonapur cement").
 
 --- 📝 OUTPUT FORMAT (STRICT JSON) ---
 {{

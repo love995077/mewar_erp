@@ -18,6 +18,8 @@ import difflib
 import json
 import os
 from app.services.ollama_engine import ask_ollama
+from apscheduler.schedulers.background import BackgroundScheduler
+from app.db.database import SessionLocal  # Taki background me DB connect ho sake
 
 router = APIRouter(prefix="/chatbot", tags=["Chatbot"])
 
@@ -169,6 +171,7 @@ def advanced_intent_detector(query: str):
     sup_words = ["supplier", "vendor", "party", "contact", "mobile", "number", "account", "details", "profile"]
     proj_words = ["project", "site", "crusher", "running", "urgent", "completed", "refurbish"]
     inv_words = ["stock", "maal", "item", "inventory", "quantity", "kitna", "qty", "nag", "available"]
+    rs_words = ["slip", "request slip", "rs", "banao", "issue", "banani"]
 
     for w in po_words: 
         if w in q: score["po_search"] += 2
@@ -178,6 +181,11 @@ def advanced_intent_detector(query: str):
         if w in q: score["project_search"] += 2
     for w in inv_words: 
         if w in q: score["search"] += 2
+    for w in rs_words: 
+        if w in q: score["create_rs"] += 3
+    if "slip" in q or "rs" in q:
+        score["create_rs"] += 5
+    
 
     if any(w in q for w in ["stock", "maal", "kitna"]) and any(w in q for w in ["supplier", "party"]):
         score["search"] += 3 
@@ -268,6 +276,11 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
         intents = [intents]
     if not intents:
         intents = ["search"]
+    
+    if "slip" in low_q or "request slip" in low_q or "rs " in low_q:
+        intents = ["create_rs"]
+        print("🚨 OVERRIDE: AI intent ignored. Forced to 'create_rs'")
+    # ==================================================
 
     original_target = str(ai_data.get("search_target") or "").strip()
     
@@ -807,10 +820,16 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
 
                     for po in pos:
                         final_results.append({
-                            "type": "po", "po_no": str(po.po_number), "supplier": str(po.supplier_name),
-                            "date": str(po.po_date), "total": float(po.total_amount or 0), 
-                            "advance": float(po.advance_amount or 0), "balance": float(po.balance_amount or 0),
-                            "status": str(po.status).capitalize()
+                            "type": "po", 
+                            "id": po.id, # 👈 Naya Add Kiya
+                            "po_no": str(po.po_number), 
+                            "supplier": str(po.supplier_name),
+                            "date": str(po.po_date), 
+                            "total": float(po.total_amount or 0), 
+                            "advance": float(po.advance_amount or 0), 
+                            "balance": float(po.balance_amount or 0),
+                            "status": str(po.status).capitalize(),
+                            "view_link": f"/purchase-order/{po.id}/show" # 👈 view link
                         })
             except Exception as e: final_results.append({"type": "chat", "message": f"PO Error: {str(e)}"})
 
@@ -869,6 +888,79 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
                 if not found_any:
                     final_results.append({"type": "chat", "message": "Bhai, ye item mere system mein nahi mila. 🧐 Thoda spelling check karoge?"})
             except Exception as e: final_results.append({"type": "chat", "message": f"Inventory Error: {str(e)}"})
+
+            # ---------------------------------------------------------
+        # ---------------------------------------------------------
+        # 📝 BRANCH 5: REQUEST SLIP FORM GENERATOR (AI AGENT MODE)
+        # ---------------------------------------------------------
+        elif intent == "create_rs":
+            try:
+                print("📝 Request Slip form trigger hua!")
+                
+                # 1. Database se list nikalo (Dropdowns ke liye)
+                # 🏢 Projects
+                proj_data = db.execute(text("SELECT id, name FROM projects WHERE is_deleted = 0")).fetchall()
+                projects_list = [{"id": p.id, "name": p.name} for p in proj_data]
+                
+                # ⚙️ Machines (Filtered by project_products table)
+                try:
+                    mach_data = db.execute(text("""
+                        SELECT pp.project_id, p.id, p.name 
+                        FROM project_products pp
+                        JOIN products p ON pp.product_id = p.id
+                        WHERE pp.is_deleted = 0 AND p.is_deleted = 0
+                    """)).fetchall()
+                    machines_list = [{"id": m.id, "name": m.name, "project_id": m.project_id} for m in mach_data]
+                except Exception as e:
+                    print(f"Machines mapping error: {e}")
+                    machines_list = [] 
+
+                # 📦 Inventory (Filtered by project_item table)
+               # 📦 Inventory (Cascading Filter ke liye)
+                try:
+                    # Pehle try karte hain Machine (product) ke hisaab se inventory nikalna
+                    inv_data = db.execute(text("""
+                        SELECT pi.product_id as machine_id, i.id, i.name 
+                        FROM product_items pi
+                        JOIN inventories i ON pi.inventory_id = i.id
+                    """)).fetchall()
+                    inventory_list = [{"id": i.id, "name": i.name, "machine_id": i.machine_id, "project_id": None} for i in inv_data]
+                except Exception as e:
+                    print(f"Product items error, falling back to project_item: {e}")
+                    try:
+                        # Agar machine se link nahi hai, toh Project se link nikalenge
+                        inv_data = db.execute(text("""
+                            SELECT pi.project_id, i.id, i.name 
+                            FROM project_item pi
+                            JOIN inventories i ON pi.inventory_id = i.id
+                        """)).fetchall()
+                        inventory_list = [{"id": i.id, "name": i.name, "machine_id": None, "project_id": i.project_id} for i in inv_data]
+                    except Exception as e2:
+                        print(f"Inventory mapping error: {e2}")
+                        inventory_list = []
+                
+                # ❌ (Yahan se purana machine code delete kar diya gaya hai) ❌
+
+                # 2. Smart Pre-fill Logic (Agar user ne 'Sonapur cement ki slip' likha hai)
+                prefill_proj = None
+                target = original_target.replace("slip", "").replace("ki", "").replace("banao", "").strip()
+                if target and len(target) > 2:
+                    # Apna FAISS Dimaag use karke exact project ka naam nikalo
+                    matched_proj = smart_match(target, category="project")
+                    prefill_proj = matched_proj if matched_proj else target
+
+                # 3. Streamlit ko Form render karne ka signal bhejo
+                final_results.append({
+                    "type": "rs_form",
+                    "message": "📝 Request Slip form taiyaar hai! Niche details confirm karke Submit karein:",
+                    "prefill_project": prefill_proj,
+                    "projects": projects_list,
+                    "machines": machines_list,
+                    "inventory": inventory_list
+                })
+                
+            except Exception as e: 
+                final_results.append({"type": "chat", "message": f"Form load karne mein error aayi: {str(e)}"})
 
    # =========================================================
     # 🏁 FINAL RETURN & FALLBACK (Language Adaptive)
@@ -950,6 +1042,41 @@ def clear_live_logs(secret_key: str = "mewar123"):
     except Exception as e:
         return {"error": f"Logs delete karne mein dikkat aayi: {str(e)}"}
 
+# ==========================================
+# 🌅 PROACTIVE AUTOMATION (MORNING BRIEFING)
+# ==========================================
+def generate_morning_briefing():
+    db = SessionLocal() # Background task ke liye naya DB connection
+    try:
+        # 1. Pending POs ka data nikalo
+        po_res = db.execute(text("SELECT COUNT(id), SUM(balance_amount) FROM purchase_orders WHERE balance_amount > 0 AND LOWER(status) != 'completed'")).fetchone()
+        pending_pos = po_res[0] or 0
+        pending_amt = po_res[1] or 0.0
 
+        # 2. Overdue/Late Projects nikalo
+        proj_res = db.execute(text("SELECT COUNT(id) FROM projects WHERE is_deleted = 0 AND (end_date < CURRENT_DATE OR deadline < CURRENT_DATE) AND LOWER(status) != 'completed'")).fetchone()
+        overdue_projs = proj_res[0] or 0
+
+        # 3. Message Banao
+        msg = f"🌅 *Good Morning! Here is your Mewar ERP Daily Briefing:* 🌅\n\n"
+        msg += f"📦 *Pending Purchase Orders:* {pending_pos} Orders (Total Due: ₹{float(pending_amt):,.2f})\n"
+        
+        if overdue_projs > 0:
+            msg += f"🚨 *Alert:* {overdue_projs} Projects apne deadline se late chal rahe hain!\n"
+        else:
+            msg += f"✅ *Projects:* Sabhi projects time par chal rahe hain.\n"
+            
+        msg += "\n💡 _(Kal jab WhatsApp live hoga, ye message sidha aapke phone par aayega!)_"
+
+        # 4. Abhi ke liye Terminal par print karo
+        print("\n" + "⭐"*30)
+        print("🤖 AUTO-TRIGGERED MORNING BRIEFING:")
+        print(msg)
+        print("⭐"*30 + "\n")
+
+    except Exception as e:
+        print(f"❌ Morning Briefing Error: {e}")
+    finally:
+        db.close()
 
 #hello hugging face! This is your friendly neighborhood chatbot router. If you have any questions or need help, just ask!

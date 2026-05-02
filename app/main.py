@@ -7,6 +7,7 @@ from app.routers.inventory_dropdown import router as inventory_router
 from app.routers.inventory_smart import router as inventory_smart_router
 from app.db.database import get_db
 from fastapi.middleware.cors import CORSMiddleware
+from app.routers.chatbot import generate_morning_briefing, BackgroundScheduler
 
 app = FastAPI()
 
@@ -50,6 +51,21 @@ app.include_router(inventory_smart_router)
 @app.get("/")
 def root():
     return {"message": "Mewar ERP API running"}
+
+
+# ⏰ SCHEDULER START KARENGE
+scheduler = BackgroundScheduler()
+
+@app.on_event("startup")
+def start_scheduler():
+    # TEST MODE: Har 1 minute me chalega
+    #scheduler.add_job(generate_morning_briefing, 'interval', minutes=1)
+    
+    #LIVE MODE: Jab final karna ho toh isko use karenge (Subah 9 baje)
+    scheduler.add_job(generate_morning_briefing, 'cron', hour=9, minute=0)
+    
+    scheduler.start()
+    print("⏰ Proactive Automation Scheduler Started!")
 
 # @app.get("/che     ck-db")
 # def check_db(db: Session = Depends(get_db)):
