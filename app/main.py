@@ -77,7 +77,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.db.database import engine
-from app.middleware.rate_limit import RateLimitMiddleware
+#from app.middleware.rate_limit import RateLimitMiddleware
 from app.routers.auth import router as auth_router
 from app.routers.inventory_dropdown import router as inventory_router
 from app.routers.inventory_smart import router as inventory_smart_router
@@ -120,13 +120,7 @@ app.add_middleware(
 )
 
 # Per-IP rate limit on chatbot to protect upstream LLM tokens & DB pool.
-app.add_middleware(
-    RateLimitMiddleware,
-    path_prefix="/v2-chatbot",
-    max_requests=30,
-    window_seconds=60,
-)
-
+#
 
 
 app.include_router(chatbot_router)
