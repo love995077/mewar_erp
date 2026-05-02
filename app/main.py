@@ -82,7 +82,7 @@ from app.routers.auth import router as auth_router
 from app.routers.inventory_dropdown import router as inventory_router
 from app.routers.inventory_smart import router as inventory_smart_router
 #from app.routers.v2_chatbot import router as v2_chatbot_router
-from app.services.v2_ollama_engine import health_check as llm_health
+#from app.services.v2_ollama_engine import health_check as llm_health
 from app.services.entity_resolver import cache_stats as resolver_stats
 
 from fastapi import FastAPI
