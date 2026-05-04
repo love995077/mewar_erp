@@ -41,12 +41,12 @@ def startup_event():
     finally:
         db_gen.close()
 
-# app.include_router(chatbot_router)
-# app.include_router(auth_router)
-# # app.include_router(supplier_router)
-# app.include_router(inventory_router)
-# # app.include_router(supplier_search_router)
-# app.include_router(inventory_smart_router)
+app.include_router(chatbot_router)
+app.include_router(auth_router)
+# app.include_router(supplier_router)
+app.include_router(inventory_router)
+# app.include_router(supplier_search_router)
+app.include_router(inventory_smart_router)
 
 @app.get("/")
 def root():

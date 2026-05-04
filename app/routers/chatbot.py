@@ -20,6 +20,7 @@ import os
 from app.services.ollama_engine import ask_ollama
 from apscheduler.schedulers.background import BackgroundScheduler
 from app.db.database import SessionLocal  # Taki background me DB connect ho sake
+from fastapi import Query as _Query
 
 router = APIRouter(prefix="/chatbot", tags=["Chatbot"])
 
@@ -1408,691 +1409,469 @@ def v2_zero_results(limit: int = 50):
 
 # # # athak code 
 
-# """
-# chatbot3.py — Clean ERP chatbot using Groq-only LLM engine.
-# Prefix: /chatbot3
-# Compatible with Chat.jsx response format.
-# """
-
-# import re
-# import difflib
-# import json
-# from typing import Optional, List
-
-# from fastapi import APIRouter, Depends
-# from sqlalchemy.orm import Session
-# from sqlalchemy import text
-
-# from app.db.database import get_db
-# from app.schemas.chat import ChatRequest
-# from app.services.groq_engine import ask_local_llm, health_check as groq_health
-
-# router = APIRouter(prefix="/chatbot3", tags=["Chatbot3"])
-
-
-# # ─── Status keyword map ───────────────────────────────────────────────────────
-# _STATUS_MAP = {
-#     "chalu": "in_progress",   "running": "in_progress",  "active": "in_progress",
-#     "in progress": "in_progress", "in_progress": "in_progress",
-#     "jari": "in_progress",    "ongoing": "in_progress",  "started": "in_progress",
-#     "completed": "completed", "khatam": "completed",     "done": "completed",
-#     "poora": "completed",     "complete": "completed",
-#     "hold": "hold",           "ruka": "hold",             "pending": "hold",
-#     "new": "new",             "naya": "new",
-# }
-
-
-# # ─── Intent handler: supplier ─────────────────────────────────────────────────
-# def _handle_supplier(low_q: str, target: str, filters: dict, db: Session) -> list:
-#     results = []
-#     _want_mobile = any(w in low_q for w in ["mobile", "phone", "number", "call", "contact"])
-#     _want_email  = any(w in low_q for w in ["email", "mail"])
-#     _want_gst    = any(w in low_q for w in ["gst", "gstin", "tax"])
-#     _want_city   = any(w in low_q for w in ["city", "address", "location", "kaha"])
-
-#     if not target:
-#         return [{"type": "chat", "message": "Bhai, kaunse supplier ki baat kar rahe ho? Naam batao."}]
-
-#     # Search by name (LIKE)
-#     sups = db.execute(text(
-#         "SELECT * FROM suppliers WHERE LOWER(supplier_name) LIKE :q ORDER BY supplier_name LIMIT 10"
-#     ), {"q": f"%{target.lower()}%"}).fetchall()
-
-#     if not sups:
-#         words = [w for w in target.lower().split() if len(w) > 2]
-#         if words:
-#             conds  = " AND ".join(f"LOWER(supplier_name) LIKE :w{i}" for i in range(len(words)))
-#             params = {f"w{i}": f"%{w}%" for i, w in enumerate(words)}
-#             sups   = db.execute(text(f"SELECT * FROM suppliers WHERE {conds} LIMIT 10"), params).fetchall()
-
-#     if not sups:
-#         return [{"type": "chat", "message": f"Bhai, '{target}' naam ka koi supplier nahi mila. Spelling check karo. 🧐"}]
-
-#     if len(sups) > 1:
-#         results.append({"type": "chat", "message": f"Mujhe **{len(sups)} suppliers** mile hain:"})
-#         results.append({
-#             "type":  "supplier_list",
-#             "items": [{"id": int(s.id), "name": str(s.supplier_name or "")} for s in sups],
-#         })
-#         return results
-
-#     s        = sups[0]
-#     sup_name = str(s.supplier_name or "Unknown")
-#     mobile   = str(getattr(s, "mobile",  "") or "N/A")
-#     email    = str(getattr(s, "email",   "") or "N/A")
-#     gstin    = str(getattr(s, "gstin",   "") or "N/A")
-#     city     = str(getattr(s, "city",    "") or "N/A")
-
-#     if _want_gst and _want_mobile:
-#         results.append({"type": "chat", "message": f"**{sup_name}** — 📞 {mobile}  |  GST: **{gstin}**", "db_checked": True})
-#     elif _want_email and _want_mobile:
-#         results.append({"type": "chat", "message": f"**{sup_name}** — 📞 {mobile}  |  📧 {email}", "db_checked": True})
-#     elif _want_mobile:
-#         results.append({"type": "chat", "message": f"📞 **{sup_name}** ka contact number: **{mobile}**", "db_checked": True})
-#     elif _want_email:
-#         results.append({"type": "chat", "message": f"📧 **{sup_name}** ki email: **{email}**", "db_checked": True})
-#     elif _want_gst:
-#         results.append({"type": "chat", "message": f"🏢 **{sup_name}** ka GSTIN: **{gstin}**", "db_checked": True})
-#     elif _want_city:
-#         results.append({"type": "chat", "message": f"📍 **{sup_name}** — City: **{city}**", "db_checked": True})
-#     else:
-#         inv_items = db.execute(text(
-#             "SELECT i.name, "
-#             "SUM(CASE WHEN LOWER(t.txn_type)='in' THEN t.quantity ELSE -t.quantity END) AS stock "
-#             "FROM inventories i JOIN stock_transactions t ON i.id=t.inventory_id "
-#             "WHERE t.supplier_id=:sid GROUP BY i.id, i.name HAVING stock!=0 LIMIT 20"
-#         ), {"sid": s.id}).fetchall()
-#         results.append({"type": "chat", "message": f"ye raha 👍 **{sup_name}** ka profile:"})
-#         results.append({
-#             "type": "result",
-#             "supplier": {
-#                 "id":     int(s.id),
-#                 "name":   sup_name,
-#                 "code":   str(getattr(s, "supplier_code", "") or ""),
-#                 "mobile": mobile,
-#                 "city":   city,
-#                 "email":  email,
-#                 "gstin":  gstin,
-#             },
-#             "items": [{"name": str(r.name), "stock": float(r.stock)} for r in inv_items],
-#         })
-
-#     return results
-
-
-# # ─── Intent handler: purchase orders ─────────────────────────────────────────
-# def _handle_po(low_q: str, target: str, filters: dict, db: Session) -> list:
-#     results = []
-
-#     is_bulk = any(w in low_q for w in ["all", "saare", "sabhi", "sab", "list", "batao", "pending", "draft"])
-#     limit   = 50 if is_bulk else min(int(filters.get("limit") or 5), 50)
-
-#     status_f = (filters.get("status") or "").lower().strip()
-#     if any(w in low_q for w in ["pending", "draft", "kacha"]):
-#         status_f = "draft"
-
-#     query  = ("SELECT p.*, s.supplier_name FROM purchase_orders p "
-#               "LEFT JOIN suppliers s ON p.supplier_id=s.id WHERE 1=1")
-#     params: dict = {"l": limit}
-
-#     if status_f:
-#         query += " AND LOWER(p.status)=:pst"
-#         params["pst"] = status_f
-
-#     if target:
-#         words = [w for w in target.lower().split() if len(w) > 1]
-#         if words:
-#             conds = " AND ".join(
-#                 f"(LOWER(s.supplier_name) LIKE :s{i} OR LOWER(p.po_number) LIKE :s{i})"
-#                 for i in range(len(words))
-#             )
-#             query += f" AND ({conds})"
-#             for i, w in enumerate(words):
-#                 params[f"s{i}"] = f"%{w}%"
-
-#     pos = db.execute(text(query + " ORDER BY p.po_date DESC LIMIT :l"), params).fetchall()
-
-#     if not pos:
-#         results.append({"type": "chat", "message": "Koi orders nahi mile in filters pe. 🧐"})
-#         return results
-
-#     total_pend = sum(float(po.balance_amount or 0) for po in pos if str(po.status or "").lower() != "completed")
-#     msg = f"Mujhe **{len(pos)} orders** mile hain."
-#     if total_pend > 0:
-#         msg += f" Total pending: **Rs. {total_pend:,.2f}**"
-#     results.append({"type": "chat", "message": msg})
-
-#     for po in pos:
-#         results.append({
-#             "type":      "po",
-#             "po_id":     int(po.id),
-#             "po_no":     str(po.po_number or ""),
-#             "supplier":  str(po.supplier_name or ""),
-#             "date":      str(po.po_date or ""),
-#             "total":     float(po.total_amount   or 0),
-#             "advance":   float(po.advance_amount or 0),
-#             "balance":   float(po.balance_amount or 0),
-#             "status":    str(po.status or "").capitalize(),
-#             "view_link": f"/purchase-order/{po.id}/show",
-#         })
-
-#     return results
-
-
-# # ─── Intent handler: projects ─────────────────────────────────────────────────
-# def _handle_project(low_q: str, target: str, filters: dict, db: Session) -> list:
-#     results = []
-
-#     is_bulk = any(w in low_q for w in [
-#         "all", "saare", "sabhi", "list", "batao", "dikhao",
-#         "chalu", "running", "active", "completed", "khatam",
-#         "hold", "ruka", "pending", "new", "naya", "jari",
-#     ])
-#     limit = 50 if is_bulk else min(int(filters.get("limit") or 5), 50)
-
-#     # Resolve status
-#     status_f  = (filters.get("status") or "").lower().strip()
-#     db_status = _STATUS_MAP.get(status_f, status_f)
-
-#     # NLP status override (takes priority over LLM if not already set)
-#     if not db_status:
-#         for kw, val in _STATUS_MAP.items():
-#             if kw in low_q:
-#                 db_status = val
-#                 break
-
-#     query  = "SELECT * FROM projects WHERE is_deleted=0"
-#     params: dict = {}
-
-#     if db_status and db_status != "all":
-#         query += " AND LOWER(status)=:st"
-#         params["st"] = db_status
-
-#     priority_f = (filters.get("priority") or "").lower().strip()
-#     if priority_f:
-#         query += " AND LOWER(priority)=:pr"
-#         params["pr"] = priority_f
-
-#     # Clean target: remove status/noise words before LIKE
-#     _proj_noise = {
-#         "all","list","projects","project","site","running","chalu","completed","hold",
-#         "new","naya","batao","dikhao","jari","active","ruka","pending","khatam","done",
-#         "poora","complete","ongoing","started","nahi","mila","search","find",
-#     }
-#     if target:
-#         clean_target = " ".join(w for w in target.lower().split() if w not in _proj_noise)
-#         if clean_target:
-#             words = clean_target.split()
-#             conds = " AND ".join(
-#                 f"(LOWER(name) LIKE :t{i} OR LOWER(COALESCE(comment,'')) LIKE :t{i})"
-#                 for i in range(len(words))
-#             )
-#             query += f" AND ({conds})"
-#             for i, w in enumerate(words):
-#                 params[f"t{i}"] = f"%{w}%"
-
-#     projs = db.execute(
-#         text(query + " ORDER BY id DESC LIMIT :limit"),
-#         {**params, "limit": limit},
-#     ).fetchall()
-
-#     if not projs:
-#         st_label = f" '{db_status}'" if db_status else ""
-#         results.append({"type": "chat", "message": f"Koi{st_label} project nahi mila. 🧐"})
-#         return results
-
-#     results.append({"type": "chat", "message": f"Mujhe **{len(projs)} project(s)** mile hain:"})
-#     for p in projs:
-#         status_now = str(p.status or "").lower()
-#         auto_stage = (
-#             "100%" if status_now == "completed" else
-#             "50%"  if status_now == "in_progress" else
-#             "Hold" if status_now == "hold" else "0%"
-#         )
-#         results.append({
-#             "type":         "project",
-#             "project_name": str(p.name or ""),
-#             "category":     (
-#                 f"{'Refurbished' if getattr(p, 'refurbish', 0) == 1 else 'New'} | "
-#                 f"{status_now.replace('_', ' ').capitalize()}"
-#             ),
-#             "amount":       float(p.budget or 0),
-#             "start_date":   str(p.start_date or "N/A"),
-#             "end_date":     str(p.end_date or getattr(p, "deadline", None) or "N/A"),
-#             "comments":     str(p.comment or ""),
-#             "stage":        getattr(p, "stage", auto_stage),
-#             "priority":     str(p.priority or "").upper(),
-#         })
-
-#     return results
-
-
-# # ─── Intent handler: inventory ────────────────────────────────────────────────
-# def _handle_inventory(low_q: str, target: str, db: Session) -> list:
-#     results = []
-
-#     if not target:
-#         return [{"type": "chat", "message": "Kaunsa item dhundna hai? Naam batao."}]
-
-#     items = db.execute(text(
-#         "SELECT id, name, model, type, classification, placement FROM inventories "
-#         "WHERE (LOWER(name) LIKE :q OR LOWER(COALESCE(model,'')) LIKE :q) AND is_deleted=0 LIMIT 30"
-#     ), {"q": f"%{target.lower()}%"}).fetchall()
-
-#     # difflib fallback
-#     if not items:
-#         all_names = [
-#             r.name.lower()
-#             for r in db.execute(text("SELECT name FROM inventories WHERE is_deleted=0")).fetchall()
-#             if r.name
-#         ]
-#         closest = difflib.get_close_matches(target.lower(), all_names, n=1, cutoff=0.65)
-#         if closest:
-#             items = db.execute(text(
-#                 "SELECT id, name, model, type, classification, placement FROM inventories "
-#                 "WHERE LOWER(name) LIKE :q AND is_deleted=0 LIMIT 30"
-#             ), {"q": f"%{closest[0]}%"}).fetchall()
-
-#     if not items:
-#         return [{"type": "chat", "message": f"'{target}' system mein nahi mila. Spelling check karo. 🧐"}]
-
-#     if len(items) > 1:
-#         ids_tuple = tuple(i.id for i in items)
-#         total = db.execute(text(
-#             "SELECT COALESCE(SUM(CASE WHEN LOWER(txn_type)='in' THEN quantity ELSE -quantity END),0) "
-#             "FROM stock_transactions WHERE inventory_id IN :ids"
-#         ), {"ids": ids_tuple}).scalar() or 0
-#         results.append({"type": "chat", "message": f"**Total {target.title()} stock:** {float(total):.2f} units"})
-#         results.append({
-#             "type":    "dropdown",
-#             "message": f"{len(items)} items mile hain. Kiski details chahiye?",
-#             "items":   [{"id": i.id, "name": f"{i.name} {i.model or ''}".strip()} for i in items],
-#         })
-#     else:
-#         inv   = items[0]
-#         stock = float(db.execute(text(
-#             "SELECT COALESCE(SUM(CASE WHEN LOWER(txn_type)='in' THEN quantity ELSE -quantity END),0) "
-#             "FROM stock_transactions WHERE inventory_id=:id"
-#         ), {"id": inv.id}).scalar() or 0)
-#         cls       = (getattr(inv, "classification", "") or "").lower()
-#         finish    = 0    if ("machining" in cls or "semi" in cls) else stock
-#         semi      = stock if "semi"      in cls else 0
-#         machining = stock if "machining" in cls else 0
-#         results.append({"type": "chat", "message": f"ye raha 👍 **{inv.name}** ka stock:"})
-#         results.append({
-#             "type":             "result",
-#             "inventory": {
-#                 "id":           int(inv.id),
-#                 "name":         f"{inv.name} {inv.model or ''}".strip(),
-#                 "category":     inv.type or "Raw Material",
-#                 "placement":    inv.placement or "N/A",
-#             },
-#             "total_stock":        stock,
-#             "finish_stock":       finish,
-#             "semi_finish_stock":  semi,
-#             "machining_stock":    machining,
-#         })
-
-#     return results
-
-
-# # ─── Main chat endpoint ───────────────────────────────────────────────────────
-# @router.post("/")
-# def chatbot3(request: ChatRequest, db: Session = Depends(get_db)):
-#     raw_q = request.query.strip()
-#     low_q = raw_q.lower()
-
-#     # Greeting fast-track (no LLM needed)
-#     _greet = {"hello", "hi", "hey", "namaste", "namaskar", "helo", "salaam", "kya hal", "kya haal"}
-#     if any(w in low_q for w in _greet):
-#         return {"results": [{
-#             "type":    "chat",
-#             "message": "Namaste! Main Mewar ERP chatbot hoon. "
-#                        "Aap inventory, supplier, purchase orders ya projects ke baare mein pooch sakte hain.",
-#         }]}
-
-#     try:
-#         ai_data = ask_local_llm(raw_q, getattr(request, "history", []))
-#     except Exception as e:
-#         return {"results": [{"type": "chat", "message":
-#             f"AI engine error: {str(e)[:120]}. "
-#             "Kripya GROQ_API_KEY_1 environment variable check karein."}]}
-
-#     intents   = ai_data.get("intents") or ["general_chat"]
-#     if isinstance(intents, str):
-#         intents = [intents]
-#     target    = str(ai_data.get("search_target") or "").strip()
-#     filters   = ai_data.get("filters") or {}
-#     reasoning = str(ai_data.get("reasoning") or "").strip()
-
-#     final_results: list = []
-#     if reasoning:
-#         final_results.append({"type": "chat", "message": reasoning})
-
-#     handled = False
-#     for intent in intents:
-#         if intent == "supplier_search":
-#             final_results.extend(_handle_supplier(low_q, target, filters, db))
-#             handled = True
-#         elif intent == "po_search":
-#             final_results.extend(_handle_po(low_q, target, filters, db))
-#             handled = True
-#         elif intent == "project_search":
-#             final_results.extend(_handle_project(low_q, target, filters, db))
-#             handled = True
-#         elif intent == "search":
-#             final_results.extend(_handle_inventory(low_q, target, db))
-#             handled = True
-
-#     if not handled:
-#         final_results.append({"type": "chat",
-#                                "message": reasoning or "Samajh nahi paya. Kripya dobara poochein."})
-
-#     return {"results": final_results or [{"type": "chat", "message": "Koi result nahi mila."}]}
-
-
-# # ─── Quick-search endpoints ───────────────────────────────────────────────────
-# @router.get("/quick-search/supplier")
-# def quick_search_supplier(q: str = "", limit: int = 80, db: Session = Depends(get_db)):
-#     if not q.strip():
-#         rows = db.execute(text(
-#             "SELECT id, supplier_name, city, mobile FROM suppliers ORDER BY id DESC LIMIT :l"
-#         ), {"l": limit}).fetchall()
-#     else:
-#         words  = q.strip().lower().split()
-#         cond   = " AND ".join(
-#             f"(LOWER(supplier_name) LIKE :w{i} OR LOWER(COALESCE(city,'')) LIKE :w{i} "
-#             f"OR COALESCE(mobile,'') LIKE :w{i})"
-#             for i in range(len(words))
-#         )
-#         params = {f"w{i}": f"%{w}%" for i, w in enumerate(words)}
-#         params["l"] = limit
-#         rows = db.execute(text(
-#             f"SELECT id, supplier_name, city, mobile FROM suppliers "
-#             f"WHERE {cond} ORDER BY supplier_name LIMIT :l"
-#         ), params).fetchall()
-#     return {"rows": [
-#         {"id": int(r.id), "name": str(r.supplier_name or ""),
-#          "city": str(r.city or ""), "mobile": str(r.mobile or "")}
-#         for r in rows
-#     ]}
-
-
-# @router.get("/quick-search/po")
-# def quick_search_po(q: str = "", limit: int = 80, db: Session = Depends(get_db)):
-#     base = (
-#         "SELECT p.id, p.po_number, p.po_date, p.total_amount, p.status, s.supplier_name "
-#         "FROM purchase_orders p LEFT JOIN suppliers s ON p.supplier_id=s.id "
-#     )
-#     if not q.strip():
-#         rows = db.execute(text(base + "ORDER BY p.id DESC LIMIT :l"), {"l": limit}).fetchall()
-#     else:
-#         words  = q.strip().lower().split()
-#         cond   = " AND ".join(
-#             f"(LOWER(p.po_number) LIKE :w{i} OR LOWER(COALESCE(s.supplier_name,'')) LIKE :w{i} "
-#             f"OR LOWER(COALESCE(p.status,'')) LIKE :w{i})"
-#             for i in range(len(words))
-#         )
-#         params = {f"w{i}": f"%{w}%" for i, w in enumerate(words)}
-#         params["l"] = limit
-#         rows = db.execute(text(base + f"WHERE {cond} ORDER BY p.po_date DESC LIMIT :l"), params).fetchall()
-#     return {"rows": [
-#         {"id": int(r.id), "po_number": str(r.po_number or ""),
-#          "date": str(r.po_date or ""), "total": float(r.total_amount or 0),
-#          "status": str(r.status or ""), "supplier": str(r.supplier_name or "")}
-#         for r in rows
-#     ]}
-
-
-# @router.get("/quick-search/inventory")
-# def quick_search_inventory(q: str = "", limit: int = 80, db: Session = Depends(get_db)):
-#     base = (
-#         "SELECT i.id, i.name, i.unit, "
-#         "COALESCE(SUM(CASE WHEN LOWER(st.txn_type)='in' THEN st.quantity "
-#         "              ELSE -st.quantity END), 0) AS stock "
-#         "FROM inventories i "
-#         "LEFT JOIN stock_transactions st ON st.inventory_id=i.id "
-#         "WHERE i.is_deleted=0 "
-#     )
-#     if not q.strip():
-#         rows = db.execute(text(
-#             base + "GROUP BY i.id, i.name, i.unit ORDER BY i.id DESC LIMIT :l"
-#         ), {"l": limit}).fetchall()
-#     else:
-#         words  = q.strip().lower().split()
-#         cond   = " AND ".join(f"LOWER(i.name) LIKE :w{i}" for i in range(len(words)))
-#         params = {f"w{i}": f"%{w}%" for i, w in enumerate(words)}
-#         params["l"] = limit
-#         rows = db.execute(text(
-#             base + f"AND {cond} GROUP BY i.id, i.name, i.unit ORDER BY i.name LIMIT :l"
-#         ), params).fetchall()
-#     return {"rows": [
-#         {"id": int(r.id), "name": str(r.name or ""),
-#          "unit": str(r.unit or ""), "stock": float(r.stock or 0)}
-#         for r in rows
-#     ]}
-
-
-# # ─── Card endpoints ───────────────────────────────────────────────────────────
-# @router.get("/po/{po_id}/card")
-# def po_card(po_id: int, db: Session = Depends(get_db)):
-#     row = db.execute(text(
-#         "SELECT p.*, s.supplier_name FROM purchase_orders p "
-#         "LEFT JOIN suppliers s ON p.supplier_id=s.id WHERE p.id=:id LIMIT 1"
-#     ), {"id": po_id}).fetchone()
-#     if not row:
-#         return {"results": [{"type": "chat", "message": "PO nahi mila."}]}
-#     return {"results": [
-#         {"type": "chat", "message": f"ye raha 👍 **{row.po_number}** ka detail:"},
-#         {
-#             "type":     "po",
-#             "po_id":    int(row.id),
-#             "po_no":    str(row.po_number or ""),
-#             "supplier": str(row.supplier_name or ""),
-#             "date":     str(row.po_date or ""),
-#             "total":    float(row.total_amount   or 0),
-#             "advance":  float(row.advance_amount or 0),
-#             "balance":  float(row.balance_amount or 0),
-#             "status":   str(row.status           or ""),
-#         },
-#     ]}
-
-
-# @router.get("/po/{po_id}/items")
-# def po_items(po_id: int, db: Session = Depends(get_db)):
-#     rows = db.execute(text(
-#         "SELECT poi.*, i.name AS item_name FROM purchase_order_items poi "
-#         "LEFT JOIN inventories i ON poi.inventory_id=i.id "
-#         "WHERE poi.purchase_order_id=:pid ORDER BY poi.id"
-#     ), {"pid": po_id}).fetchall()
-#     return {"rows": [
-#         {
-#             "item":       str(r.item_name or ""),
-#             "ordered":    float(r.ordered_qty  or 0),
-#             "received":   float(r.received_qty or 0),
-#             "unit_price": float(r.unit_price   or 0),
-#             "line_total": float(r.line_total   or 0),
-#         }
-#         for r in rows
-#     ]}
-
-
-# @router.get("/po/{po_id}/payments")
-# def po_payments(po_id: int, db: Session = Depends(get_db)):
-#     rows = db.execute(text(
-#         "SELECT * FROM purchase_order_payments WHERE purchase_order_id=:pid ORDER BY payment_date DESC"
-#     ), {"pid": po_id}).fetchall()
-#     return {"rows": [
-#         {
-#             "date":   str(r.payment_date or ""),
-#             "amount": float(r.amount or 0),
-#             "method": str(getattr(r, "payment_method", "") or ""),
-#             "note":   str(getattr(r, "note", "") or ""),
-#         }
-#         for r in rows
-#     ]}
-
-
-# @router.get("/po/{po_id}/supplier")
-# def po_supplier(po_id: int, db: Session = Depends(get_db)):
-#     row = db.execute(text(
-#         "SELECT s.* FROM suppliers s "
-#         "JOIN purchase_orders p ON p.supplier_id=s.id "
-#         "WHERE p.id=:pid LIMIT 1"
-#     ), {"pid": po_id}).fetchone()
-#     if not row:
-#         return {"supplier": None}
-#     return {"supplier": {
-#         "id":     int(row.id),
-#         "name":   str(row.supplier_name or ""),
-#         "mobile": str(getattr(row, "mobile",  "") or ""),
-#         "email":  str(getattr(row, "email",   "") or ""),
-#         "city":   str(getattr(row, "city",    "") or ""),
-#         "gstin":  str(getattr(row, "gstin",   "") or ""),
-#     }}
-
-
-# @router.get("/po/{po_id}/status-log")
-# def po_status_log(po_id: int, db: Session = Depends(get_db)):
-#     rows = db.execute(text(
-#         "SELECT * FROM purchase_order_status_logs WHERE purchase_order_id=:pid ORDER BY created_at DESC"
-#     ), {"pid": po_id}).fetchall()
-#     return {"rows": [
-#         {
-#             "status":  str(getattr(r, "status", "") or ""),
-#             "note":    str(getattr(r, "note",   "") or ""),
-#             "created": str(getattr(r, "created_at", "") or ""),
-#         }
-#         for r in rows
-#     ]}
-
-
-# @router.get("/supplier/{supplier_id}/card")
-# def supplier_card(supplier_id: int, db: Session = Depends(get_db)):
-#     s = db.execute(text("SELECT * FROM suppliers WHERE id=:id LIMIT 1"), {"id": supplier_id}).fetchone()
-#     if not s:
-#         return {"results": [{"type": "chat", "message": "Supplier nahi mila."}]}
-#     inv_items = db.execute(text(
-#         "SELECT i.id, i.name, "
-#         "SUM(CASE WHEN LOWER(t.txn_type)='in' THEN t.quantity ELSE -t.quantity END) AS stock "
-#         "FROM inventories i JOIN stock_transactions t ON i.id=t.inventory_id "
-#         "WHERE t.supplier_id=:sid GROUP BY i.id, i.name HAVING stock!=0 LIMIT 30"
-#     ), {"sid": supplier_id}).fetchall()
-#     return {"results": [
-#         {"type": "chat", "message": f"ye raha 👍 **{s.supplier_name}** ka profile:"},
-#         {
-#             "type": "result",
-#             "supplier": {
-#                 "id":     int(s.id),
-#                 "name":   str(s.supplier_name or ""),
-#                 "code":   str(getattr(s, "supplier_code", "") or ""),
-#                 "mobile": str(getattr(s, "mobile",  "") or ""),
-#                 "city":   str(getattr(s, "city",    "") or ""),
-#                 "email":  str(getattr(s, "email",   "") or ""),
-#                 "gstin":  str(getattr(s, "gstin",   "") or ""),
-#             },
-#             "items": [{"name": r.name, "stock": float(r.stock)} for r in inv_items],
-#         },
-#     ]}
-
-
-# @router.get("/supplier/{supplier_id}/pos")
-# def supplier_pos(supplier_id: int, limit: int = 50, db: Session = Depends(get_db)):
-#     rows = db.execute(text(
-#         "SELECT * FROM purchase_orders WHERE supplier_id=:sid ORDER BY po_date DESC LIMIT :l"
-#     ), {"sid": supplier_id, "l": limit}).fetchall()
-#     return {"rows": [
-#         {
-#             "id":      int(r.id),
-#             "po_no":   str(r.po_number or ""),
-#             "date":    str(r.po_date   or ""),
-#             "total":   float(r.total_amount   or 0),
-#             "advance": float(r.advance_amount or 0),
-#             "balance": float(r.balance_amount or 0),
-#             "status":  str(r.status or ""),
-#         }
-#         for r in rows
-#     ]}
-
-
-# @router.get("/supplier/{supplier_id}/items")
-# def supplier_items(supplier_id: int, db: Session = Depends(get_db)):
-#     rows = db.execute(text(
-#         "SELECT i.id, i.name, "
-#         "SUM(CASE WHEN LOWER(t.txn_type)='in' THEN t.quantity ELSE -t.quantity END) AS stock "
-#         "FROM inventories i JOIN stock_transactions t ON i.id=t.inventory_id "
-#         "WHERE t.supplier_id=:sid GROUP BY i.id, i.name HAVING stock!=0"
-#     ), {"sid": supplier_id}).fetchall()
-#     return {"rows": [{"id": int(r.id), "name": r.name, "stock": float(r.stock)} for r in rows]}
-
-
-# @router.get("/supplier/{supplier_id}/payments")
-# def supplier_payments(supplier_id: int, limit: int = 50, db: Session = Depends(get_db)):
-#     rows = db.execute(text(
-#         "SELECT pop.*, po.po_number FROM purchase_order_payments pop "
-#         "JOIN purchase_orders po ON pop.purchase_order_id=po.id "
-#         "WHERE po.supplier_id=:sid ORDER BY pop.payment_date DESC LIMIT :l"
-#     ), {"sid": supplier_id, "l": limit}).fetchall()
-#     return {"rows": [
-#         {
-#             "date":    str(r.payment_date or ""),
-#             "amount":  float(r.amount or 0),
-#             "po_no":   str(r.po_number or ""),
-#             "method":  str(getattr(r, "payment_method", "") or ""),
-#         }
-#         for r in rows
-#     ]}
-
-
-# @router.get("/supplier/{supplier_id}/balance")
-# def supplier_balance(supplier_id: int, db: Session = Depends(get_db)):
-#     row = db.execute(text(
-#         "SELECT COALESCE(SUM(total_amount),0) AS total, "
-#         "COALESCE(SUM(advance_amount),0) AS paid, "
-#         "COALESCE(SUM(balance_amount),0) AS balance "
-#         "FROM purchase_orders WHERE supplier_id=:sid AND LOWER(status)!='cancelled'"
-#     ), {"sid": supplier_id}).fetchone()
-#     return {
-#         "total":   float(row.total   or 0),
-#         "paid":    float(row.paid    or 0),
-#         "balance": float(row.balance or 0),
-#     }
-
-
-# @router.get("/inventory/{inventory_id}/card")
-# def inventory_card(inventory_id: int, db: Session = Depends(get_db)):
-#     inv = db.execute(text("SELECT * FROM inventories WHERE id=:id LIMIT 1"), {"id": inventory_id}).fetchone()
-#     if not inv:
-#         return {"results": [{"type": "chat", "message": "Item nahi mila."}]}
-#     stock = float(db.execute(text(
-#         "SELECT COALESCE(SUM(CASE WHEN LOWER(txn_type)='in' THEN quantity ELSE -quantity END),0) "
-#         "FROM stock_transactions WHERE inventory_id=:id"
-#     ), {"id": inventory_id}).scalar() or 0)
-#     cls       = (getattr(inv, "classification", "") or "").lower()
-#     finish    = 0    if ("machining" in cls or "semi" in cls) else stock
-#     semi      = stock if "semi"      in cls else 0
-#     machining = stock if "machining" in cls else 0
-#     return {"results": [
-#         {"type": "chat", "message": f"ye raha 👍 **{inv.name}** ka stock:"},
-#         {
-#             "type":              "result",
-#             "inventory": {
-#                 "id":            int(inv.id),
-#                 "name":          str(inv.name or ""),
-#                 "category":      cls.upper(),
-#                 "placement":     str(getattr(inv, "placement", "") or ""),
-#                 "unit":          str(getattr(inv, "unit",      "") or ""),
-#                 "model":         str(getattr(inv, "model",     "") or ""),
-#             },
-#             "total_stock":        stock,
-#             "finish_stock":       finish,
-#             "semi_finish_stock":  semi,
-#             "machining_stock":    machining,
-#         },
-#     ]}
-
-
-# # ─── Health ───────────────────────────────────────────────────────────────────
-# @router.get("/health")
-# def chatbot3_health():
-#     return {"status": "ok", "engine": groq_health()}
+# ── Feedback ─────────────────────────────────────────────────────────────────
+@router.post("/feedback")
+def chatbot_feedback(payload: dict, db: Session = Depends(get_db)):
+    """Receives 👍/👎 votes from Chat.jsx FeedbackButtons."""
+    return {"ok": True}
+
+
+# ── Supplier button endpoints ─────────────────────────────────────────────────
+
+@router.get("/supplier/{supplier_id}/pos")
+def supplier_pos(supplier_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _t
+    rows = db.execute(_t("""
+        SELECT id, po_number, po_date, total_amount, advance_amount, balance_amount,
+               status, expected_delivery, delivery_status
+        FROM purchase_orders
+        WHERE supplier_id = :sid
+        ORDER BY po_date DESC LIMIT 50
+    """), {"sid": supplier_id}).fetchall()
+    return {"rows": [
+        {
+            "id":              int(r.id),
+            "po_number":       str(r.po_number),
+            "date":            str(r.po_date or ""),
+            "total":           float(r.total_amount   or 0),
+            "advance":         float(r.advance_amount or 0),
+            "balance":         float(r.balance_amount or 0),
+            "status":          str(r.status            or ""),
+            "expected":        str(r.expected_delivery or ""),
+            "delivery_status": str(r.delivery_status   or ""),
+        }
+        for r in rows
+    ]}
+
+
+@router.get("/supplier/{supplier_id}/balance")
+def supplier_balance(supplier_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _t
+    r = db.execute(_t("""
+        SELECT
+            COUNT(*)                                                             AS total_pos,
+            COALESCE(SUM(total_amount),   0)                                    AS total_ordered,
+            COALESCE(SUM(advance_amount), 0)                                    AS total_advance,
+            COALESCE(SUM(balance_amount), 0)                                    AS total_balance,
+            COALESCE(SUM(CASE WHEN LOWER(status)!='completed'
+                              THEN balance_amount ELSE 0 END), 0)               AS pending_balance,
+            COUNT(CASE WHEN LOWER(status)='completed' THEN 1 END)              AS completed_pos,
+            COUNT(CASE WHEN LOWER(status)!='completed' THEN 1 END)             AS open_pos
+        FROM purchase_orders WHERE supplier_id = :sid
+    """), {"sid": supplier_id}).fetchone()
+    return {
+        "total_pos":       int(r.total_pos),
+        "total_ordered":   float(r.total_ordered),
+        "total_advance":   float(r.total_advance),
+        "total_balance":   float(r.total_balance),
+        "pending_balance": float(r.pending_balance),
+        "completed_pos":   int(r.completed_pos),
+        "open_pos":        int(r.open_pos),
+    }
+
+
+@router.get("/supplier/{supplier_id}/items")
+def supplier_items(supplier_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _t
+    rows = db.execute(_t("""
+        SELECT i.name, i.unit,
+               COALESCE(SUM(poi.ordered_qty),  0) AS total_ordered,
+               COALESCE(SUM(poi.received_qty), 0) AS total_received
+        FROM purchase_order_items poi
+        JOIN inventories    i  ON poi.inventory_id       = i.id
+        JOIN purchase_orders po ON poi.purchase_order_id = po.id
+        WHERE po.supplier_id = :sid
+        GROUP BY i.id, i.name, i.unit
+        ORDER BY total_ordered DESC LIMIT 50
+    """), {"sid": supplier_id}).fetchall()
+    return {"rows": [
+        {"name": str(r.name), "unit": str(r.unit or ""),
+         "ordered": float(r.total_ordered), "received": float(r.total_received)}
+        for r in rows
+    ]}
+
+
+@router.get("/supplier/{supplier_id}/payments")
+def supplier_payments(supplier_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _t
+    rows = db.execute(_t("""
+        SELECT pt.pay_amount, pt.transaction_date, po.po_number
+        FROM po_transactions pt
+        JOIN purchase_orders po ON pt.po_id = po.id
+        WHERE po.supplier_id = :sid
+        ORDER BY pt.transaction_date DESC LIMIT 50
+    """), {"sid": supplier_id}).fetchall()
+    total_paid = sum(float(r.pay_amount) for r in rows)
+    return {
+        "total_paid": total_paid,
+        "rows": [
+            {"po_number": str(r.po_number), "amount": float(r.pay_amount),
+             "date": str(r.transaction_date)[:10]}
+            for r in rows
+        ],
+    }
+
+
+@router.get("/supplier/{supplier_id}/card")
+def supplier_card(supplier_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _t
+    s = db.execute(_t("SELECT * FROM suppliers WHERE id=:id LIMIT 1"), {"id": supplier_id}).fetchone()
+    if not s:
+        return {"results": [{"type": "chat", "message": "Supplier nahi mila."}]}
+    inv_items = db.execute(_t(
+        "SELECT i.id, i.name, "
+        "SUM(CASE WHEN LOWER(t.txn_type)='in' THEN t.quantity ELSE -t.quantity END) AS stock "
+        "FROM inventories i JOIN stock_transactions t ON i.id=t.inventory_id "
+        "WHERE t.supplier_id=:sid GROUP BY i.id,i.name HAVING stock!=0"
+    ), {"sid": supplier_id}).fetchall()
+    return {"results": [
+        {"type": "chat", "message": f"ye raha 👍 **{s.supplier_name}** ka profile:"},
+        {
+            "type": "result",
+            "supplier": {
+                "id":     int(s.id),
+                "name":   str(s.supplier_name or ""),
+                "code":   str(getattr(s, "supplier_code", "") or ""),
+                "mobile": str(getattr(s, "mobile", "")        or ""),
+                "city":   str(getattr(s, "city", "")          or ""),
+                "email":  str(getattr(s, "email", "")         or ""),
+                "gstin":  str(getattr(s, "gstin", "")         or ""),
+            },
+            "items": [{"name": r.name, "stock": float(r.stock)} for r in inv_items],
+        },
+    ]}
+
+
+# ── PO button endpoints ───────────────────────────────────────────────────────
+
+@router.get("/po/{po_id}/items")
+def po_items(po_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _t
+    rows = db.execute(_t("""
+        SELECT i.name, i.unit, poi.hsn,
+               poi.ordered_qty, poi.received_qty,
+               poi.unit_price, poi.discount, poi.tax_percent,
+               poi.tax_amount, poi.line_total
+        FROM purchase_order_items poi
+        JOIN inventories i ON poi.inventory_id = i.id
+        WHERE poi.purchase_order_id = :pid ORDER BY poi.id
+    """), {"pid": po_id}).fetchall()
+    return {"rows": [
+        {
+            "name":        str(r.name),
+            "unit":        str(r.unit        or ""),
+            "hsn":         str(r.hsn         or ""),
+            "ordered":     float(r.ordered_qty   or 0),
+            "received":    float(r.received_qty  or 0),
+            "unit_price":  float(r.unit_price    or 0),
+            "discount":    float(r.discount      or 0),
+            "tax_percent": float(r.tax_percent   or 0),
+            "tax_amount":  float(r.tax_amount    or 0),
+            "line_total":  float(r.line_total    or 0),
+        }
+        for r in rows
+    ]}
+
+
+@router.get("/po/{po_id}/payments")
+def po_payments(po_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _t
+    rows = db.execute(_t("""
+        SELECT pay_amount, transaction_date FROM po_transactions
+        WHERE po_id = :pid ORDER BY transaction_date DESC
+    """), {"pid": po_id}).fetchall()
+    total_paid = sum(float(r.pay_amount) for r in rows)
+    return {
+        "total_paid": total_paid,
+        "rows": [{"amount": float(r.pay_amount), "date": str(r.transaction_date)[:10]}
+                 for r in rows],
+    }
+
+
+@router.get("/po/{po_id}/status-log")
+def po_status_log(po_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _t
+    rows = db.execute(_t("""
+        SELECT status, changed_at, remarks FROM po_status_logs
+        WHERE purchase_order_id = :pid ORDER BY changed_at DESC
+    """), {"pid": po_id}).fetchall()
+    return {"rows": [
+        {"status": str(r.status or ""), "date": str(r.changed_at)[:16],
+         "remarks": str(r.remarks or "")}
+        for r in rows
+    ]}
+
+
+@router.get("/po/{po_id}/supplier")
+def po_supplier(po_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _t
+    row = db.execute(_t(
+        "SELECT s.* FROM purchase_orders p "
+        "JOIN suppliers s ON p.supplier_id = s.id WHERE p.id = :id LIMIT 1"
+    ), {"id": po_id}).fetchone()
+    if not row:
+        return {"error": "Supplier not found for this PO"}
+    return {"supplier": {
+        "id":     int(row.id),
+        "name":   str(row.supplier_name or ""),
+        "code":   str(getattr(row, "supplier_code", "N/A") or "N/A"),
+        "mobile": str(getattr(row, "mobile", "N/A") or "N/A"),
+        "city":   str(getattr(row, "city", "N/A")   or "N/A"),
+        "email":  str(getattr(row, "email", "N/A")  or "N/A"),
+        "gstin":  str(getattr(row, "gstin", "N/A")  or "N/A"),
+    }}
+
+
+@router.get("/po/{po_id}/card")
+def po_card(po_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _t
+    row = db.execute(_t(
+        "SELECT p.*, s.supplier_name FROM purchase_orders p "
+        "LEFT JOIN suppliers s ON p.supplier_id=s.id WHERE p.id=:id LIMIT 1"
+    ), {"id": po_id}).fetchone()
+    if not row:
+        return {"results": [{"type": "chat", "message": "PO nahi mila."}]}
+    return {"results": [
+        {"type": "chat", "message": f"ye raha 👍 **{row.po_number}** ka detail:"},
+        {
+            "type":     "po",
+            "po_id":    int(row.id),
+            "po_no":    str(row.po_number or ""),
+            "supplier": str(row.supplier_name or ""),
+            "date":     str(row.po_date or ""),
+            "total":    float(row.total_amount   or 0),
+            "advance":  float(row.advance_amount or 0),
+            "balance":  float(row.balance_amount or 0),
+            "status":   str(row.status           or ""),
+        },
+    ]}
+
+
+# ── Inventory button endpoints ────────────────────────────────────────────────
+
+@router.get("/inventory/{inventory_id}/po-history")
+def inventory_po_history(inventory_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _t
+    rows = db.execute(_t("""
+        SELECT po.id, po.po_number, po.po_date, po.status,
+               s.supplier_name,
+               poi.ordered_qty, poi.received_qty, poi.unit_price, poi.line_total
+        FROM purchase_order_items poi
+        JOIN purchase_orders po ON poi.purchase_order_id = po.id
+        JOIN suppliers s        ON po.supplier_id        = s.id
+        WHERE poi.inventory_id = :iid ORDER BY po.po_date DESC LIMIT 50
+    """), {"iid": inventory_id}).fetchall()
+    return {"rows": [
+        {
+            "po_id":      int(r.id),
+            "po_number":  str(r.po_number),
+            "date":       str(r.po_date or ""),
+            "status":     str(r.status  or ""),
+            "supplier":   str(r.supplier_name or ""),
+            "ordered":    float(r.ordered_qty  or 0),
+            "received":   float(r.received_qty or 0),
+            "unit_price": float(r.unit_price   or 0),
+            "line_total": float(r.line_total   or 0),
+        }
+        for r in rows
+    ]}
+
+
+@router.get("/inventory/{inventory_id}/suppliers")
+def inventory_suppliers(inventory_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _t
+    rows = db.execute(_t("""
+        SELECT s.id, s.supplier_name, s.city,
+               COUNT(DISTINCT po.id)             AS po_count,
+               COALESCE(SUM(poi.ordered_qty), 0) AS total_ordered,
+               COALESCE(MIN(poi.unit_price),  0) AS min_price,
+               COALESCE(MAX(poi.unit_price),  0) AS max_price
+        FROM purchase_order_items poi
+        JOIN purchase_orders po ON poi.purchase_order_id = po.id
+        JOIN suppliers s        ON po.supplier_id        = s.id
+        WHERE poi.inventory_id = :iid
+        GROUP BY s.id, s.supplier_name, s.city ORDER BY total_ordered DESC
+    """), {"iid": inventory_id}).fetchall()
+    return {"rows": [
+        {
+            "id":            int(r.id),
+            "name":          str(r.supplier_name or ""),
+            "city":          str(r.city          or ""),
+            "po_count":      int(r.po_count),
+            "total_ordered": float(r.total_ordered),
+            "min_price":     float(r.min_price),
+            "max_price":     float(r.max_price),
+        }
+        for r in rows
+    ]}
+
+
+@router.get("/inventory/{inventory_id}/stock-log")
+def inventory_stock_log(inventory_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _t
+    rows = db.execute(_t("""
+        SELECT txn_date, txn_type, quantity, ref_type, ref_no, remarks
+        FROM stock_transactions
+        WHERE inventory_id = :iid ORDER BY txn_date DESC, id DESC LIMIT 100
+    """), {"iid": inventory_id}).fetchall()
+    running = 0.0
+    result_rows = []
+    for r in reversed(rows):
+        qty = float(r.quantity or 0)
+        running += qty if str(r.txn_type).lower() == "in" else -qty
+        result_rows.append({
+            "date":     str(r.txn_date or ""),
+            "type":     str(r.txn_type or ""),
+            "qty":      qty,
+            "balance":  round(running, 2),
+            "ref_type": str(r.ref_type or ""),
+            "ref_no":   str(r.ref_no   or ""),
+            "remarks":  str(r.remarks  or ""),
+        })
+    result_rows.reverse()
+    return {"rows": result_rows, "current_stock": round(running, 2)}
+
+
+@router.get("/inventory/{inventory_id}/grns")
+def inventory_grns(inventory_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _t
+    rows = db.execute(_t("""
+        SELECT g.grn_number, g.grn_date, g.invoice_no, g.remarks,
+               gi.received_qty, gi.accepted_qty, gi.rejected_qty, gi.placement
+        FROM grn_items gi
+        JOIN grns g ON gi.grn_id = g.id
+        WHERE gi.inventory_id = :iid ORDER BY g.grn_date DESC LIMIT 50
+    """), {"iid": inventory_id}).fetchall()
+    return {"rows": [
+        {
+            "grn_number": str(r.grn_number  or ""),
+            "date":       str(r.grn_date    or ""),
+            "invoice_no": str(r.invoice_no  or ""),
+            "received":   float(r.received_qty  or 0),
+            "accepted":   float(r.accepted_qty  or 0),
+            "rejected":   float(r.rejected_qty  or 0),
+            "placement":  str(r.placement   or ""),
+            "remarks":    str(r.remarks     or ""),
+        }
+        for r in rows
+    ]}
+
+
+@router.get("/inventory/{inventory_id}/card")
+def inventory_card(inventory_id: int, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _t
+    inv = db.execute(_t("SELECT * FROM inventories WHERE id=:id LIMIT 1"), {"id": inventory_id}).fetchone()
+    if not inv:
+        return {"results": [{"type": "chat", "message": "Item nahi mila."}]}
+    stock = float(db.execute(_t(
+        "SELECT COALESCE(SUM(CASE WHEN LOWER(txn_type)='in' THEN quantity ELSE -quantity END),0) "
+        "FROM stock_transactions WHERE inventory_id=:id"
+    ), {"id": inventory_id}).scalar() or 0)
+    cls = (getattr(inv, "classification", "") or "").lower()
+    finish    = 0 if ("machining" in cls or "semi" in cls) else stock
+    semi      = stock if "semi"      in cls else 0
+    machining = stock if "machining" in cls else 0
+    return {"results": [
+        {"type": "chat", "message": f"ye raha 👍 **{inv.name}** ka stock:"},
+        {
+            "type":             "result",
+            "inventory": {
+                "id":        int(inv.id),
+                "name":      str(inv.name or ""),
+                "category":  cls.upper(),
+                "placement": str(getattr(inv, "placement", "") or ""),
+                "unit":      str(getattr(inv, "unit", "")      or ""),
+                "model":     str(getattr(inv, "model", "")     or ""),
+                "grade":     str(getattr(inv, "grade", "")     or ""),
+            },
+            "total_stock":       stock,
+            "finish_stock":      finish,
+            "semi_finish_stock": semi,
+            "machining_stock":   machining,
+        },
+    ]}
+
+
+# ── Quick-search endpoints (floating sidebar buttons in Chat.jsx) ─────────────
+
+@router.get("/quick-search/supplier")
+def quick_search_supplier(q: str = "", limit: int = 60, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _t
+    if not q.strip():
+        rows = db.execute(_t(
+            "SELECT id, supplier_name, city, mobile FROM suppliers ORDER BY id DESC LIMIT :l"
+        ), {"l": limit}).fetchall()
+    else:
+        words = q.strip().lower().split()
+        cond = " AND ".join(
+            f"(LOWER(supplier_name) LIKE :w{i} OR LOWER(COALESCE(city,'')) LIKE :w{i} "
+            f"OR COALESCE(mobile,'') LIKE :w{i})"
+            for i in range(len(words))
+        )
+        params = {f"w{i}": f"%{w}%" for i, w in enumerate(words)}
+        params["l"] = limit
+        rows = db.execute(_t(
+            f"SELECT id, supplier_name, city, mobile FROM suppliers "
+            f"WHERE {cond} ORDER BY supplier_name LIMIT :l"
+        ), params).fetchall()
+    return {"rows": [
+        {"id": int(r.id), "name": str(r.supplier_name or ""),
+         "city": str(r.city or ""), "mobile": str(r.mobile or "")}
+        for r in rows
+    ]}
+
+
+@router.get("/quick-search/po")
+def quick_search_po(q: str = "", limit: int = 60, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _t
+    base = (
+        "SELECT p.id, p.po_number, p.po_date, p.total_amount, p.status, s.supplier_name "
+        "FROM purchase_orders p LEFT JOIN suppliers s ON p.supplier_id=s.id "
+    )
+    if not q.strip():
+        rows = db.execute(_t(base + "ORDER BY p.id DESC LIMIT :l"), {"l": limit}).fetchall()
+    else:
+        words = q.strip().lower().split()
+        cond = " AND ".join(
+            f"(LOWER(p.po_number) LIKE :w{i} OR LOWER(COALESCE(s.supplier_name,'')) LIKE :w{i} "
+            f"OR LOWER(COALESCE(p.status,'')) LIKE :w{i})"
+            for i in range(len(words))
+        )
+        params = {f"w{i}": f"%{w}%" for i, w in enumerate(words)}
+        params["l"] = limit
+        rows = db.execute(_t(base + f"WHERE {cond} ORDER BY p.po_date DESC LIMIT :l"), params).fetchall()
+    return {"rows": [
+        {"id": int(r.id), "po_number": str(r.po_number or ""),
+         "date": str(r.po_date or ""), "total": float(r.total_amount or 0),
+         "status": str(r.status or ""), "supplier": str(r.supplier_name or "")}
+        for r in rows
+    ]}
+
+
+@router.get("/quick-search/inventory")
+def quick_search_inventory(q: str = "", limit: int = 60, db: Session = Depends(get_db)):
+    from sqlalchemy import text as _t
+    base = (
+        "SELECT i.id, i.name, i.unit, "
+        "COALESCE(SUM(CASE WHEN LOWER(st.txn_type)='in' THEN st.quantity "
+        "                  ELSE -st.quantity END), 0) AS stock "
+        "FROM inventories i LEFT JOIN stock_transactions st ON st.inventory_id = i.id "
+        "WHERE i.is_deleted = 0 "
+    )
+    if not q.strip():
+        rows = db.execute(_t(
+            base + "GROUP BY i.id, i.name, i.unit ORDER BY i.id DESC LIMIT :l"
+        ), {"l": limit}).fetchall()
+    else:
+        words = q.strip().lower().split()
+        cond = " AND ".join(f"LOWER(i.name) LIKE :w{i}" for i in range(len(words)))
+        params = {f"w{i}": f"%{w}%" for i, w in enumerate(words)}
+        params["l"] = limit
+        rows = db.execute(_t(
+            base + f"AND {cond} GROUP BY i.id, i.name, i.unit ORDER BY i.name LIMIT :l"
+        ), params).fetchall()
+    return {"rows": [
+        {"id": int(r.id), "name": str(r.name or ""),
+         "unit": str(r.unit or ""), "stock": float(r.stock or 0)}
+        for r in rows
+    ]}
