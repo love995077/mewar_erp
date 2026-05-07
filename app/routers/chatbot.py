@@ -22,6 +22,12 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from app.db.database import SessionLocal  # Taki background me DB connect ho sake
 from fastapi import Query as _Query
 
+#whatsapp integration
+#from app.routers.chatbot import process_chat_message
+
+
+
+
 router = APIRouter(prefix="/chatbot", tags=["Chatbot"])
 
 # ==========================================
@@ -216,7 +222,7 @@ def log_query_pro(user_role, query, intents, final_results, process_time):
         "role": user_role,
         "user_query": query,
         "intent": str(intents),
-        "bot_response": bot_reply,
+        "bot_response": final_results["results"],
         "time_taken_sec": round(process_time, 2),
         "status": "Fail ❌" if is_fail else "Success ✅"
     }
@@ -277,6 +283,11 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
         intents = [intents]
     if not intents:
         intents = ["search"]
+
+    shortage_words = ["short", "kam", "zyada", "extra", "surplus", "required", "kami"]
+    if any(w in low_q.split() for w in shortage_words):
+        intents = ["shortage_search"]
+        print("🚨 OVERRIDE: AI intent ignored. Forced to 'shortage_search'")
     
     if "slip" in low_q or "request slip" in low_q or "rs " in low_q:
         intents = ["create_rs"]
@@ -889,6 +900,136 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
                 if not found_any:
                     final_results.append({"type": "chat", "message": "Bhai, ye item mere system mein nahi mila. 🧐 Thoda spelling check karoge?"})
             except Exception as e: final_results.append({"type": "chat", "message": f"Inventory Error: {str(e)}"})
+
+        # =========================================================
+        # 📉 BRANCH: REQUIRED VS AVAILABLE (SHORTAGE + SURPLUS + PROJECT SPECIFIC)
+        # =========================================================
+        elif intent == "shortage_search":
+            try:
+                target = original_target.strip().lower()
+                
+                # 🧹 Faltu words hatao taaki AI confuse na ho
+                for iw in ["short", "kam", "zyada", "extra", "hai", "kya", "batao", "check", "available", "project", "site", "ke liye", "ki", "mein"]:
+                    target = target.replace(iw, "").strip()
+
+                # 🧠 1. NLP Check: User Shortage pooch raha hai ya Extra?
+                is_surplus = any(w in low_q for w in ["zyada", "extra", "surplus", "bacha", "bache"])
+                
+                # 🕵️‍♂️ 2. SMART DETECTOR: Target ek Project hai ya Item?
+                project_filter_sql = ""
+                item_filter_sql = ""
+                params = {}
+                matched_project_name = None
+                
+                if target and target not in ["maal", "item", "stock", "inventory", "list", "sab"]:
+                    # Pehle check karo kya ye target kisi Project ke naam se milta hai?
+                    proj_check = db.execute(text("SELECT name FROM projects WHERE LOWER(name) LIKE :t AND is_deleted = 0 LIMIT 1"), {"t": f"%{target}%"}).fetchone()
+                    
+                    if proj_check:
+                        # Ye ek PROJECT hai! (Requirement list ko is project tak limit karo)
+                        matched_project_name = proj_check.name
+                        project_filter_sql = " AND LOWER(p.name) LIKE :t "
+                        params["t"] = f"%{target}%"
+                    else:
+                        # Ye ek ITEM hai! (Target ko inventory table par lagao)
+                        item_filter_sql = " AND LOWER(i.name) LIKE :t "
+                        params["t"] = f"%{target}%"
+
+                # 🏗️ 3. DYNAMIC SQL QUERY (Ab ye projects ke hisaab se badlegi)
+                query = f"""
+                    WITH RequiredData AS (
+                        SELECT pi.inventory_id, SUM(pp.quantity * pi.quantity) as req_qty
+                        FROM projects p
+                        JOIN project_products pp ON p.id = pp.project_id
+                        JOIN product_items pi ON pp.product_id = pi.product_id
+                        WHERE LOWER(p.status) NOT IN ('completed', 'hold') AND p.is_deleted = 0
+                        {project_filter_sql}
+                        GROUP BY pi.inventory_id
+                        
+                        UNION ALL
+                        
+                        SELECT pji.inventory_id, SUM(pji.quantity) as req_qty
+                        FROM projects p
+                        JOIN project_item pji ON p.id = pji.project_id
+                        WHERE LOWER(p.status) NOT IN ('completed', 'hold') AND p.is_deleted = 0
+                        {project_filter_sql}
+                        GROUP BY pji.inventory_id
+                    ),
+                    TotalRequired AS (
+                        SELECT inventory_id, SUM(req_qty) as required_qty
+                        FROM RequiredData
+                        GROUP BY inventory_id
+                    ),
+                    StockData AS (
+                        SELECT inventory_id, 
+                               COALESCE(SUM(CASE WHEN LOWER(txn_type) = 'in' THEN quantity ELSE -quantity END), 0) AS available_qty
+                        FROM stock_transactions
+                        GROUP BY inventory_id
+                    )
+                    SELECT 
+                        i.name, 
+                        tr.required_qty,
+                        COALESCE(sd.available_qty, 0) AS available_qty
+                    FROM TotalRequired tr
+                    JOIN inventories i ON tr.inventory_id = i.id
+                    LEFT JOIN StockData sd ON tr.inventory_id = sd.inventory_id
+                    WHERE i.is_deleted = 0 {item_filter_sql}
+                """
+                
+                # ⚖️ 4. Condition: Shortage ya Extra?
+                if is_surplus:
+                    query += " AND COALESCE(sd.available_qty, 0) > tr.required_qty"
+                    query += " ORDER BY (COALESCE(sd.available_qty, 0) - tr.required_qty) DESC"
+                    alert_emoji = "✅ Extra:"
+                    report_title = "Extra / Surplus Stock"
+                else:
+                    query += " AND tr.required_qty > COALESCE(sd.available_qty, 0)"
+                    query += " ORDER BY (tr.required_qty - COALESCE(sd.available_qty, 0)) DESC"
+                    alert_emoji = "🚨 Short:"
+                    report_title = "Shortage"
+                    
+                query += " LIMIT 20"
+                
+                rows = db.execute(text(query), params).fetchall()
+                
+                # 💬 5. RENDER RESULTS
+                if matched_project_name:
+                    report_title += f" for **{matched_project_name}**"
+
+                if not rows:
+                    # 👇 NAYA FIX: Ab Extra aur Short dono ka alag message aayega
+                    if matched_project_name:
+                        if is_surplus:
+                            final_results.append({"type": "chat", "message": f"Bhai, **{matched_project_name}** project ke liye koi item extra (surplus) nahi pada hai. Jitni zaroorat hai, bas utna hi maal hai! ⚖️"})
+                        else:
+                            final_results.append({"type": "chat", "message": f"Bhai, **{matched_project_name}** project ke liye koi item short nahi hai. Is project ka saara maal available hai! 🚀"})
+                    
+                    elif target and not matched_project_name:
+                        if is_surplus:
+                            final_results.append({"type": "chat", "message": f"Bhai, **{target.title()}** abhi zaroorat se zyada (extra) nahi pada hai. Ekdum hisaab se hi available hai! ⚖️"})
+                        else:
+                            final_results.append({"type": "chat", "message": f"Bhai, **{target.title()}** ka stock ekdum set hai! Koi shortage nahi hai. 👍"})
+                    
+                    elif is_surplus:
+                        final_results.append({"type": "chat", "message": "Bhai, abhi required se zyada (extra) koi maal nahi pada hai. Sab hisaab se hi chal raha hai! ⚖️"})
+                    
+                    else:
+                        final_results.append({"type": "chat", "message": "Bhai, abhi koi shortage nahi hai. Saara maal properly available hai! ✅📦"})
+                else:
+                    msg = f"haan mil gaya 👍 Ye rahi **{report_title}** items ki list:\n\n"
+                    msg += "| Item Name | Required | Available | Difference |\n"
+                    msg += "| :--- | :---: | :---: | :---: |\n"
+                    
+                    for r in rows:
+                        req = float(r.required_qty or 0)
+                        avail = float(r.available_qty or 0)
+                        diff = abs(req - avail)
+                        msg += f"| {str(r.name)} | {req} | {avail} | {alert_emoji} **{diff}** |\n"
+                    
+                    final_results.append({"type": "chat_table", "message": msg})
+                    
+            except Exception as e:
+                final_results.append({"type": "chat_table_error", "message": f"Report Error: {str(e)}"})
 
             # ---------------------------------------------------------
         # ---------------------------------------------------------
@@ -1875,3 +2016,75 @@ def quick_search_inventory(q: str = "", limit: int = 60, db: Session = Depends(g
          "unit": str(r.unit or ""), "stock": float(r.stock or 0)}
         for r in rows
     ]}
+
+
+# =========================================================================
+# 🟢 WHATSAPP INTEGRATION ENGINE (JSON to WhatsApp Text Converter)
+# =========================================================================
+async def process_chat_message(user_text: str) -> str:
+    """
+    Ye function WhatsApp se text lega, aapke main chatbot() function ko dega,
+    aur uske JSON response ko WhatsApp friendly text mein badal dega.
+    """
+    # 1. Database Connection banayein
+    db = SessionLocal()
+    try:
+        # 2. Dummy Request banayein (Jaise Web UI se aati hai)
+        
+        # Baad mein aap sender_phone ke hisaab se role nikal sakte hain.
+        request_data = ChatRequest(query=user_text, role="superadmin")
+        
+        # 3. Apna Main AI Chatbot function call karein
+        response_dict = chatbot(request_data, db)
+        
+        # 4. JSON Result ko WhatsApp Text mein convert karein
+        final_whatsapp_text = ""
+        
+        if "results" in response_dict:
+            for res in response_dict["results"]:
+                res_type = res.get("type")
+                
+                # Agar normal text message hai
+                if res_type == "chat":
+                    final_whatsapp_text += res.get("message", "") + "\n\n"
+                
+                # Agar PO ka data hai (Card)
+                elif res_type == "po":
+                    final_whatsapp_text += f"📄 *PO No:* {res.get('po_no')}\n"
+                    final_whatsapp_text += f"🏢 *Supplier:* {res.get('supplier')}\n"
+                    final_whatsapp_text += f"💰 *Total:* ₹{res.get('total', 0):,.2f}\n"
+                    final_whatsapp_text += f"⏳ *Balance:* ₹{res.get('balance', 0):,.2f}\n"
+                    final_whatsapp_text += f"📌 *Status:* {res.get('status')}\n\n"
+                
+                # Agar Inventory/Supplier ka result hai
+                elif res_type == "result":
+                    if "inventory" in res:
+                        inv = res["inventory"]
+                        final_whatsapp_text += f"📦 *{inv.get('name')}*\n"
+                        final_whatsapp_text += f"📊 *Total Stock:* {res.get('total_stock')}\n"
+                        final_whatsapp_text += f"📍 *Location:* {inv.get('placement')}\n\n"
+                
+                # Agar Dropdown (List of items) hai
+                elif res_type == "dropdown":
+                    final_whatsapp_text += res.get("message", "") + "\n"
+                    for item in res.get("items", []):
+                        final_whatsapp_text += f"🔸 {item.get('name')}\n"
+                    final_whatsapp_text += "\n*(Kripya inme se ek naam type karein)*\n\n"
+                    
+                # Agar Project ka data hai
+                elif res_type == "project":
+                    final_whatsapp_text += f"🏗️ *Project:* {res.get('project_name')}\n"
+                    final_whatsapp_text += f"📌 *Status:* {res.get('category')}\n"
+                    final_whatsapp_text += f"💰 *Budget:* ₹{res.get('amount', 0):,.2f}\n\n"
+
+        # Agar kuch nahi mila toh default message
+        if not final_whatsapp_text.strip():
+            final_whatsapp_text = "Maaf karna, mujhe iska jawab nahi mil paya. 😅"
+            
+        return final_whatsapp_text.strip()
+
+    except Exception as e:
+        print(f"❌ WhatsApp AI Error: {e}")
+        return "Bhai, mere AI dimaag mein thoda error aa gaya hai. Thodi der mein try karein! 🙏"
+    finally:
+        db.close() # Connection close karna zaroori hai

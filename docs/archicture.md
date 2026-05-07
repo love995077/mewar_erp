@@ -15,3 +15,6 @@ streamlit run analytics_dashboard.py
 
 ## for testing bot
 pytest test_bot.py -v
+
+# modal deploy 
+modal deploy modal_deploy.py  

@@ -118,6 +118,7 @@ AI: {{ "intents": ["create_rs"], "search_target": "", "reasoning": "haan bhai bi
 - "po_search" → orders
 - "financial_search" → checking balance, advance, taxes, rokra, paisa
 - "clarify" → unclear input
+- - "shortage_search" -> inventory shortage, required vs available, kya maal short hai, kam hai, zyada hai, extra, surplus.
 - "create_rs" → If user asks to create/make a "slip", "request slip", or "rs" (e.g., "slip banao"). Extract Project or Machine Name as 'search_target' (e.g., for "Sonapur cement ki slip", target is "Sonapur cement").
 
 --- 📝 OUTPUT FORMAT (STRICT JSON) ---

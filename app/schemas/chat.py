@@ -10,4 +10,4 @@ class ChatRequest(BaseModel):
     ui_filters: Optional[Dict[str, Any]] = {}
 
     #role check
-    role: str = "guest"
+    role: str = "superadmin"
