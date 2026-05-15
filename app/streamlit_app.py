@@ -305,6 +305,16 @@ def render_bot_response(data, msg_idx):
         elif res_type == "chat":
             st.write(res["message"])
 
+        # 📊 CASE 10: NL2SQL RAW TABLE (Fallback result)
+        elif res_type == "nl2sql_table":
+            rows = res.get("rows", [])
+            cols = res.get("columns", [])
+            if rows:
+                df = pd.DataFrame(rows)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No records found in the database.")
+
 
 # ==========================================
 # PAGE: CHATBOT INTERFACE
@@ -358,8 +368,14 @@ def ask_erp(query, role):
         # NAYA: json payload mein "role" daal diya
         r = requests.post(CHAT_URL, json={"query": query, "history": history, "role": role}, headers=headers)
         return r.json()
+    
+    # 🛑 THE MAGIC: Agar backend lock (band) hai, toh ugly error mat dikhao, seedha apna professional message do!
+    except requests.exceptions.ConnectionError:
+        return {"error": "🛑 [CRITICAL] This instance has been suspended by the centralized management server. System execution is halted. Please contact the technical administrator for service restoration."}
+        
+    # ⚠️ BAAKI ERRORS: Agar koi aur problem ho
     except Exception as e: 
-        return {"error": f"FastAPI Connection Failed. {str(e)}"}
+        return {"error": f"System Error: {str(e)}"}
 
 # Render Chat History
 for idx, msg in enumerate(st.session_state.messages):
