@@ -106,7 +106,7 @@ from app.routers.inventory_smart import router as inventory_smart_router
 from app.routers.chatbot import router as chatbot_router
 
 # Initialize FastAPI
-app = FastAPI(title="Mewar ERP API", redirect_slashes=False)
+app = FastAPI(title="Mewar ERP API", redirect_slashes=True)
 
 # ==========================================
 # 🛡️ CORS SETTINGS
