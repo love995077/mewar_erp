@@ -1186,3 +1186,6 @@ def format_answer(user_query: str, rows: list, columns: list,
         return _call_ai(system_full=system, system_compact=system, user=user)
     except Exception:
         return data_text if rows else "Koi data nahi mila."
+
+
+#fgddxf

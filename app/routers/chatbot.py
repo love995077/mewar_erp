@@ -2310,3 +2310,8 @@ def generate_morning_briefing():
         print(f"Morning briefing error: {e}")
     finally:
         db.close()
+
+
+
+
+##ggfdgdfgd

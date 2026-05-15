@@ -146,3 +146,8 @@ app.include_router(inventory_smart_router)
 @app.get("/")
 def root():
     return {"message": "Mewar ERP API running"}
+
+
+
+
+#hello
