@@ -1105,9 +1105,9 @@
 #     finally: db.close()
 
 
-## --------------------------------------------------------------------------------------------------------------------------------------
-                                       ## NEW SQL CHATBOT CODE STARTS HERE ##
-##-----------------------------------------------------------------------------------------------------------------------------------------
+# # --------------------------------------------------------------------------------------------------------------------------------------
+#                                        # NEW SQL CHATBOT CODE STARTS HERE ##
+# #-----------------------------------------------------------------------------------------------------------------------------------------
 
 # from asyncio import threads
 # import time
@@ -1683,7 +1683,7 @@
 
 
 ## --------------------------------------------------------------------------------------------------------------------------------------
-#                                           TEMPORARY LIVE TESTING(ATHAK)
+#                                           TEMPORARY LIVE TESTING(love code fallback back to this code)
 #---------------------------------------------------------------------------------------------------------------------------------------
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1698,70 +1698,919 @@
 # Route prefix: /v2-chatbot  (Chat.jsx connects here)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import re
-import time
-import json
-import os
-import difflib
-import datetime
+# import time
+# import datetime
+# from fastapi import APIRouter, Depends, Query as _Query
+# from sqlalchemy.orm import Session
+# from sqlalchemy import text
+# import re
+# import numpy as np
+# import faiss
+# from fastembed import TextEmbedding
+# import difflib
+# import json
+# import os
 
+# from app.db.database import get_db, SessionLocal
+# from app.schemas.chat import ChatRequest
+# from app.services.ollama_engine import ask_ollama
+# from app.services.nl2sql_engine import get_db_schema, generate_sql, format_answer
+
+# router = APIRouter(prefix="/chatbot", tags=["Chatbot Final"])
+
+# # ── 1. SECURITY FIREWALL FUNCTION ──────────────────────────────────────────
+# def is_safe_sql(sql_query: str) -> bool:
+#     if not sql_query: return False
+#     q = sql_query.upper().strip()
+#     if not (q.startswith("SELECT") or q.startswith("WITH")): return False
+#     dangerous_words = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE"]
+#     for word in dangerous_words:
+#         if re.search(rf'\b{word}\b', q): return False 
+#     return True
+
+# # ── 2. ROLE PERMISSIONS MATRIX ──────────────────────────────────────────────
+# ROLE_PERMISSIONS = {
+#     "supervisor":      ["inventory", "project", "general_chat"],
+#     "sales":           ["inventory", "general_chat"],
+#     "purchase":        ["inventory", "supplier", "po", "general_chat"],
+#     "purchase admin":  ["inventory", "supplier", "po", "financials", "general_chat"],
+#     "store admin":     ["inventory", "po", "project", "general_chat"],
+#     "store department":["inventory", "general_chat"],
+#     "hod":             ["inventory", "project", "supplier", "po", "financials", "general_chat"],
+#     "hr":              ["general_chat"],
+# }
+
+# # ── 3. OFF-TOPIC CONSTANTS & GUARDRAILS ─────────────────────────────────────
+# _ERP_KEYWORDS = {
+#     "supplier", "vendor", "party", "sup",
+#     "po", "order", "orders", "purchase", "transit", "delivery", "grn", "dispatch",
+#     "stock", "maal", "item", "inventory", "qty", "quantity",
+#     "project", "site", "crusher",
+#     "balance", "payment", "invoice", "gst", "tax", "cgst", "sgst",
+#     "rokra", "paisa", "kharcha", "hisab",
+#     "mewar", "erp", "sale", "sales", "report", "employee", "account",
+#     "slip", "request", "banao", "batao", "dikhao", "milao", "details",
+#     "kitna", "kitne", "kahan", "kaisa", "kab", "lagao", "nikalo",
+#     "total", "list", "count", "kitni", "sabhi", "saare",
+#     "show", "find", "get", "check", "all", "mere", "mera",
+# }
+
+# _POOR_SIGNALS = [
+#     "theek se samajh nahi", "maaf kijiye", "clear batao", "clearly batao",
+#     "kripya", "naam batao", "couldn't understand", "i'm sorry",
+#     "it seems you", "please provide", "thoda clear",
+#     "nahi mila", "nahi mili", "nahi mile", "spelling check karoge",
+#     "koi supplier nahi", "koi project nahi",
+#     "ek sec", "check karta hoon", "dekh raha hoon", "dhundh raha hoon",
+# ]
+
+# _CLEANLY_OFFTOPIC = {
+#     "poem", "poetry", "joke", "weather", "recipe", "cook", "song", "lyrics",
+#     "translate", "movie", "cricket", "football", "game", "news", "capital of",
+#     "who is the president", "write a story", "tell me a story",
+# }
+
+# def _is_off_topic(query: str) -> bool:
+#     q = query.lower()
+#     if len(q.split()) <= 3: return False
+#     if any(kw in q for kw in _CLEANLY_OFFTOPIC): return True
+#     return not any(kw in q for kw in _ERP_KEYWORDS)
+
+# def _is_poor_result(response: dict) -> bool:
+#     results = response.get("results", [])
+#     data_types = {"result", "po", "dropdown", "project", "po_list", "po_summary", "project_list", "supplier_list", "rs_form"}
+#     if any(r.get("type") in data_types for r in results): return False
+#     chat_text = " ".join(r.get("message", "") for r in results if r.get("type") == "chat").lower()
+#     return any(sig in chat_text for sig in _POOR_SIGNALS)
+
+
+# # ── 4. FAISS SEMANTIC SEARCH ENGINE MODULE ──────────────────────────────────
+# semantic_model = None
+# inv_names_list = []
+# sup_names_list = []
+# proj_names_list = []
+# inv_faiss_index = None
+# sup_faiss_index = None
+# proj_faiss_index = None
+# is_faiss_loaded = False
+# is_loading_started = False
+
+# def load_faiss_once(db: Session):
+#     global semantic_model, inv_names_list, sup_names_list, proj_names_list, inv_faiss_index, sup_faiss_index, proj_faiss_index, is_faiss_loaded, is_loading_started
+#     if is_faiss_loaded or is_loading_started: return
+#     is_loading_started = True
+    
+#     print("⏳ Building Unified Semantic Memory Arrays... (Takes 5-10 seconds)")
+#     semantic_model = TextEmbedding('BAAI/bge-small-en-v1.5', threads=1)
+    
+#     for attempt in range(3):
+#         try:
+#             # 1. Indexing Inventory Items
+#             inv_data = db.execute(text("SELECT name FROM inventories WHERE name IS NOT NULL AND is_deleted = 0")).fetchall()
+#             inv_names_list = [row[0] for row in inv_data if row[0]]
+#             if inv_names_list:
+#                 inv_embeddings = np.array(list(semantic_model.embed(inv_names_list, batch_size=50))).astype('float32')
+#                 inv_faiss_index = faiss.IndexFlatL2(inv_embeddings.shape[1])
+#                 inv_faiss_index.add(inv_embeddings)
+
+#             # 2. Indexing Supplier Matrix
+#             sup_data = db.execute(text("SELECT supplier_name FROM suppliers WHERE supplier_name IS NOT NULL")).fetchall()
+#             sup_names_list = [row[0] for row in sup_data if row[0]]
+#             if sup_names_list:
+#                 sup_embeddings = np.array(list(semantic_model.embed(sup_names_list, batch_size=50))).astype('float32')
+#                 sup_faiss_index = faiss.IndexFlatL2(sup_embeddings.shape[1])
+#                 sup_faiss_index.add(sup_embeddings)
+
+#             # 3. Indexing Running Projects
+#             proj_data = db.execute(text("SELECT name FROM projects WHERE name IS NOT NULL AND is_deleted = 0")).fetchall()
+#             proj_names_list = [row[0] for row in proj_data if row[0]]
+#             if proj_names_list:
+#                 proj_embeddings = np.array(list(semantic_model.embed(proj_names_list, batch_size=50))).astype('float32')
+#                 proj_faiss_index = faiss.IndexFlatL2(proj_embeddings.shape[1])
+#                 proj_faiss_index.add(proj_embeddings)
+
+#             is_faiss_loaded = True
+#             is_loading_started = False
+#             print(f"✅ FAISS Stack Loaded! [{len(inv_names_list)} Items, {len(sup_names_list)} Suppliers, {len(proj_names_list)} Projects]")
+#             return
+#         except Exception as e:
+#             print(f"⚠️ Initialization Error (Attempt {attempt+1}): {e}")
+#             try: db.rollback()
+#             except: pass
+#             if attempt < 2: time.sleep(3)
+#             else: is_loading_started = False
+
+# def smart_match(query_text, category="inventory"):
+#     if not query_text or len(query_text) < 2 or not is_faiss_loaded: return query_text
+#     try:
+#         query_vector = np.array(list(semantic_model.embed([query_text]))).astype('float32') 
+#         if category == "inventory" and inv_faiss_index:
+#             distances, indices = inv_faiss_index.search(query_vector, 3)
+#             if distances[0][0] < 0.7: return inv_names_list[indices[0][0]]
+#         elif category == "supplier" and sup_faiss_index:
+#             distances, indices = sup_faiss_index.search(query_vector, 3)
+#             if distances[0][0] < 0.7: return sup_names_list[indices[0][0]]
+#         elif category == "project" and proj_faiss_index:
+#             distances, indices = proj_faiss_index.search(query_vector, 3)
+#             if distances[0][0] < 1.0: return proj_names_list[indices[0][0]]
+#     except: pass
+#     return query_text
+
+# def log_query_pro(user_role, query, intents, final_results, process_time):
+#     bot_reply = "No Response"
+#     if isinstance(final_results, dict) and "results" in final_results:
+#         for res in final_results["results"]:
+#             if res.get("type") == "chat":
+#                 bot_reply = res.get("message", "")
+#                 break 
+#     is_fail = any(w in str(bot_reply).lower() for w in ["nahi mila", "error", "samajh nahi", "maaf kijiye", "kripya", "permission nahi"])
+#     log_entry = {
+#         "date_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+#         "role": user_role, "user_query": query, "intent": str(intents),
+#         "bot_response": final_results["results"] if "results" in final_results else final_results, 
+#         "time_taken_sec": round(process_time, 2), "status": "Fail ❌" if is_fail else "Success ✅"
+#     }
+#     try:
+#         with open("chat_history.json", "a", encoding="utf-8") as f:
+#             f.write(json.dumps(log_entry, ensure_ascii=False, default=str) + "\n")
+#     except Exception as e: print(f"❌ Logger File Exception: {e}")
+
+# # ── 5. SECONDARY NL2SQL LAYER FALLBACK WRAPPER ──────────────────────────────
+# def _nl2sql_response(raw_q: str, db, history: list = None) -> dict | None:
+#     history = history or []
+#     try:
+#         schema_full = get_db_schema(db, compact=False)
+#         schema_compact = get_db_schema(db, compact=True)
+        
+#         # 🧠 DYNAMIC ENTITY INJECTION + SPELLING AUTO-CORRECT
+#         entity_hint = ""
+#         lower_q = raw_q.lower()
+#         real_project_name = None
+
+#         # Step 1: Exact Match Check
+#         for p in proj_names_list:
+#             if p and len(str(p)) > 3 and str(p).lower() in lower_q:
+#                 real_project_name = str(p)
+#                 break
+        
+#         # Step 2: Spelling Typo Check (Fuzzy Match)
+#         if not real_project_name:
+#             proj_dict = {str(p).lower(): str(p) for p in proj_names_list if p}
+#             ignore_words = ["project", "inventory", "batao", "dikhao", "sabse", "chota", "bada", "chahiye", "ki", "ka", "ke"]
+            
+#             for w in lower_q.split():
+#                 if len(w) >= 4 and w not in ignore_words:
+#                     matches = difflib.get_close_matches(w, proj_dict.keys(), n=1, cutoff=0.6)
+#                     if matches:
+#                         real_project_name = proj_dict[matches[0]]
+#                         break
+
+#         # Step 3: Injection
+#         if real_project_name:
+#             entity_hint = f"\n[CRITICAL HINT: The exact project name in the database is '{real_project_name}'. Even if the user misspelled it in the prompt, you MUST use '{real_project_name}' in your SQL LIKE clause for the `projects` table and apply the UNION ALL project inventory logic.]"
+        
+#         enhanced_query = raw_q + entity_hint
+        
+#         sql = generate_sql(enhanced_query, schema_full, schema_compact, history=history)
+        
+#         sql = re.sub(r'^```[sS][qQ][lL]\s*', '', sql, flags=re.MULTILINE)
+#         sql = re.sub(r'^```\s*', '', sql, flags=re.MULTILINE)
+#         sql = re.sub(r'```$', '', sql, flags=re.MULTILINE).strip()
+        
+#         if not is_safe_sql(sql): return None
+#         try: result = db.execute(text(sql))
+#         except Exception as exec_err:
+#             sql = generate_sql(enhanced_query, schema_full, schema_compact, previous_sql=sql, sql_error=str(exec_err), history=history)
+            
+#             sql = re.sub(r'^```[sS][qQ][lL]\s*', '', sql, flags=re.MULTILINE)
+#             sql = re.sub(r'^```\s*', '', sql, flags=re.MULTILINE)
+#             sql = re.sub(r'```$', '', sql, flags=re.MULTILINE).strip()
+            
+#             if not is_safe_sql(sql): return None
+#             result = db.execute(text(sql))
+            
+#         columns = list(result.keys())
+#         rows = [list(row) for row in result.fetchall()]
+#         answer = format_answer(raw_q, rows, columns, history=history)
+        
+#         parts = [{"type": "chat", "message": answer}]
+#         if rows:
+#             rows_as_dicts = [dict(zip(columns, row)) for row in rows[:50]]
+#             parts.append({"type": "nl2sql_table", "rows": rows_as_dicts, "columns": columns})
+#         return {"results": parts}
+#     except Exception as e:
+#         print(f"[NL2SQL Fallback Execution Alert] Failed: {e}")
+#         return None
+
+
+# # ══════════════════════════════════════════════════════════════════════════════
+# # 🧠 MAIN UNIFIED ROUTER FUNCTION
+# # ══════════════════════════════════════════════════════════════════════════════
+# @router.post("/")
+# def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
+#     start_time = time.time()
+#     load_faiss_once(db)
+#     raw_q = request.query.strip()
+#     low_q = raw_q.lower()
+#     low_q = low_q.replace("sa bse", "sabse")
+#     chat_history = getattr(request, "history", []) 
+#     user_role = getattr(request, "role", "guest").lower().strip()
+
+#     # 🛑 GUARD 1: Off-Topic Security Firewall
+#     if _is_off_topic(raw_q) and not bool(chat_history):
+#         return {"results": [{"type": "chat", "message": "Bhai, main sirf Mewar ERP ke bartaav par bachaav kar sakta hoon — Suppliers, Purchase Orders, Inventory, aur Projects. In topics par koi jaankari chahiye toh batao! 😊"}]}
+
+#     # 🛑 GUARD 2: Fast-Track Direct ID Pipeline
+#     if low_q.isdigit() and len(low_q) < 8:
+#         allowed_perms = ROLE_PERMISSIONS.get(user_role, [])
+#         if user_role in ["superadmin", "super admin"] or "inventory" in allowed_perms:
+#             try:
+#                 inv = db.execute(text("SELECT id, name, classification, placement FROM inventories WHERE id = :id AND is_deleted=0"), {"id": int(low_q)}).fetchone()
+#                 if inv:
+#                     stock_res = db.execute(text("SELECT SUM(CASE WHEN LOWER(txn_type) = 'in' THEN quantity ELSE -quantity END) FROM stock_transactions WHERE inventory_id = :id"), {"id": inv.id}).scalar()
+#                     total_qty = float(stock_res or 0)
+#                     cls = str(inv.classification).lower() if inv.classification else ""
+#                     m, f, sf = (total_qty, 0, 0) if "machining" in cls else (0, 0, total_qty) if "semi" in cls else (0, total_qty, 0)
+#                     return {"results": [{"type": "result", "inventory": {"id": inv.id, "name": inv.name, "category": cls.upper(), "placement": inv.placement or "N/A"}, "total_stock": total_qty, "finish_stock": f, "semi_finish_stock": sf, "machining_stock": m}]}
+#             except: pass
+#         else:
+#             return {"results": [{"type": "chat", "message": f"Aapka current active status '{user_role.title()}' hai. Aapko Item Codes / Barcode ID se directly view karne ki permissions restricted hain. 🛑"}]}
+
+#     # 🧠 EXECUTE STEP 1: Process Query through Ollama Engine
+#     try:
+#         try: ai_data = ask_ollama(raw_q, chat_history)
+#         except:
+#             time.sleep(1)
+#             ai_data = ask_ollama(raw_q, chat_history)
+#     except Exception as e:
+#         print(f"❌ AI Core Exception: {str(e)}")
+#         nl2_r = _nl2sql_response(raw_q, db, history=chat_history)
+#         return nl2_r if nl2_r else {"results": [{"type": "chat", "message": "Bhai, mera AI brain abhi connect nahi ho pa raha. 🙏"}]}
+
+#     intents = ai_data.get("intents") or []
+#     if "intent" in ai_data and not intents: intents = [ai_data["intent"]]
+#     if isinstance(intents, str): intents = [intents]
+    
+#     # 🧠 INTENT BOUNCER (Hard Override for Safety against API Limits)
+#     if not intents or intents == ["search"]:
+#         if any(w in low_q for w in ["supplier", "vendor", "party", "kaha hai", "mobile", "contact"]):
+#             intents = ["supplier_search"]
+#         elif any(w in low_q for w in ["bearing", "belt", "nut", "bolt", "stock", "qty", "item"]):
+#             intents = ["search"]
+#         elif any(w in low_q for w in ["project", "site", "chalu", "progress"]):
+#             intents = ["project_search"]
+    
+#     if not intents: intents = ["search"]
+
+#     # Master Overrides
+#     if any(w in low_q.split() for w in ["short", "kam", "extra", "surplus", "required", "kami"]): intents = ["sql_analysis"]
+#     if "shortage_search" in intents: intents = ["sql_analysis"]
+#     if "sql_analysis" not in intents and any(w in low_q for w in ["tax", "gst", "cgst", "sgst", "advance", "adv"]): intents = ["po_search"]
+
+#     original_target = str(ai_data.get("search_target") or "").strip()
+#     reasoning = ai_data.get("reasoning") or "hmm ek sec... main check karta hoon 👍"
+    
+#     noise_words = ["supplier", "vendor", "party", "details", "contact", "profile", "ki", "ka", "ke", "project", "site", "machine"]
+#     for word in noise_words: original_target = re.sub(rf'\b{word}\b', '', original_target, flags=re.IGNORECASE).strip()
+#     ai_data["search_target"] = original_target
+#     if re.match(r'^sup[-\s]?\d+$', original_target.lower()):
+#         if "supplier_search" not in intents: intents = ["supplier_search"]
+
+#     filters = ai_data.get("filters", {})
+#     limit = filters.get("limit", 5) or 5
+#     query_type = "inventory" if "search" in intents else "supplier" if "supplier_search" in intents else "project" if "project_search" in intents else "po"
+
+#     # THE MASTER ENGINE BOUNCER (UPDATED WITH BUTTON INTERCEPTOR)
+#     is_button_click = False
+#     if low_q.startswith("show orders of "):
+#         original_target = raw_q[15:].strip()
+#         raw_q = original_target
+#         low_q = original_target.lower()
+#         intents, query_type = ["po_search"], "po"
+#         is_button_click = True
+#     elif low_q.startswith("show profile details of "):
+#         original_target = raw_q[24:].strip()
+#         raw_q = original_target
+#         low_q = original_target.lower()
+#         intents, query_type = ["supplier_search"], "supplier"
+#         is_button_click = True
+
+#     complex_words = [
+#         "kitna", "kitne", "total", "count", "sum", "balance", "paisa", "pending", 
+#         "shortage", "sabse", "how many", "top", "highest", "lowest", "maximum", 
+#         "minimum", "best", "worst", "average", "avg", "sab se", "kaun", "kiska", 
+#         "kiske", "whose", "which", "list", "kya", "batao", "dikhao"
+#     ]
+#     has_complex_word = any(w in low_q for w in complex_words)
+#     has_long_number = bool(re.search(r'\d{6,}', low_q))
+#     is_long_sentence = len(low_q.split()) > 4
+    
+#     is_complex_query = (has_complex_word or has_long_number or is_long_sentence) if not is_button_click else False
+
+#     # 🛡️ 100% BULLETPROOF ENTITY RESOLVER
+#     if not is_complex_query and len(low_q.split()) <= 4:
+#         low_q_clean = low_q.strip()
+#         ignore_names = ["order", "orders", "detail", "details", "po", "profile", "all", "list", "contact", "number", "email", "history", "yes", "no", "haan", "na"]
+        
+#         if low_q_clean not in ignore_names:
+#             original_target = low_q_clean
+#             generic_keywords = ["bearing", "belt", "bolt", "nut", "screw", "nipple", "pipe", "valve", "washer", "spring", "rod", "sheet", "oil", "grease", "tool", "pin", "plug"]
+#             is_generic_item = any(w in low_q_clean for w in generic_keywords)
+#             has_supplier_keyword = any(w in low_q_clean for w in ["supplier", "vendor", "party", "firm", "dealer", "dukaan"])
+            
+#             if is_generic_item and not has_supplier_keyword:
+#                 intents, query_type = ["search"], "inventory"
+#             else:
+#                 sup_matches = [s for s in sup_names_list if low_q_clean in str(s).lower()]
+#                 proj_matches = [p for p in proj_names_list if low_q_clean in str(p).lower()]
+#                 inv_matches = [i for i in inv_names_list if low_q_clean in str(i).lower()]
+                
+#                 sup_dist, inv_dist, proj_dist = 999.0, 999.0, 999.0
+#                 if semantic_model and is_faiss_loaded:
+#                     temp_vec = np.array(list(semantic_model.embed([raw_q]))).astype('float32')
+#                     if sup_faiss_index and sup_names_list:
+#                         sd, _ = sup_faiss_index.search(temp_vec, 1)
+#                         sup_dist = float(sd[0][0])
+#                     if inv_faiss_index and inv_names_list:
+#                         idist, _ = inv_faiss_index.search(temp_vec, 1)
+#                         inv_dist = float(idist[0][0])
+#                     if proj_faiss_index and proj_names_list:
+#                         pdist, _ = proj_faiss_index.search(temp_vec, 1)
+#                         proj_dist = float(pdist[0][0])
+
+#                 if sup_matches and not inv_matches and not proj_matches: intents, query_type = ["supplier_search"], "supplier"
+#                 elif inv_matches and not sup_matches and not proj_matches: intents, query_type = ["search"], "inventory"
+#                 elif proj_matches and not sup_matches and not inv_matches: intents, query_type = ["project_search"], "project"
+#                 else:
+#                     min_dist = min(sup_dist, inv_dist, proj_dist)
+#                     if min_dist < 0.65:
+#                         if min_dist == sup_dist: intents, query_type = ["supplier_search"], "supplier"
+#                         elif min_dist == inv_dist: intents, query_type = ["search"], "inventory"
+#                         elif min_dist == proj_dist: intents, query_type = ["project_search"], "project"
+
+#     # 🔒 GUARD 3: Role Security Firewall Checks
+#     if user_role not in ["superadmin", "super admin"]:
+#         allowed_perms = ROLE_PERMISSIONS.get(user_role, [])
+#         for intent in intents:
+#             if "po_search" in intents and "po" not in allowed_perms: return {"results": [{"type": "chat", "message": "Aapke user profile ko Purchase Orders access karne ki authorization nahi hai. 🛑"}]}
+#             if "supplier_search" in intents and "supplier" not in allowed_perms: return {"results": [{"type": "chat", "message": "Aapke user profile ko Supplier records view karne ki authorization nahi hai. 🛑"}]}
+#             if "project_search" in intents and "project" not in allowed_perms: return {"results": [{"type": "chat", "message": "Aapke user profile ko Projects management systems open karne ki permission nahi hai. 🛑"}]}
+#             if "search" in intents and "inventory" not in allowed_perms: return {"results": [{"type": "chat", "message": "Aapke user profile ko Store/Inventory stock lookup karne ki execution boundary restricted hai. 🛑"}]}
+
+#     smart_keywords = ["all", "saare", "sabhi", "list", "running", "chalu", "progress", "completed", "khatam", "done", "hold", "ruka", "pending", "remaining", "baki", "deadline", "target", "status", "sabse", "bada", "highest", "lowest", "kam", "late", "overdue"]
+    
+#     # FIXED: Check if get_close_matches returns a list before accessing [0]
+#     fixed_words = []
+#     for w in low_q.split():
+#         matches = difflib.get_close_matches(w, smart_keywords, n=1, cutoff=0.8)
+#         if matches:
+#             fixed_words.append(matches[0])
+#         else:
+#             fixed_words.append(w)
+            
+#     low_q = " ".join(fixed_words)
+
+#     final_results = [{"type": "chat", "message": reasoning}]
+
+#     if is_complex_query:
+#         intents = ["sql_analysis"]
+
+#     for intent in intents:
+#         # 📁 BRANCH 1: PROJECTS
+#         if intent == "project_search":
+#             try:
+#                 target = original_target.strip()
+#                 target_lower = target.lower()
+#                 projs = []
+#                 if any(w in low_q for w in ["all", "saare", "sabhi", "list"]): limit = 50
+#                 if any(w in low_q for w in ["last", "latest", "new", "naya"]): limit = 1
+                
+#                 if any(w in low_q for w in ["sabse bada project", "highest budget", "mehenga"]):
+#                     big_proj = db.execute(text("SELECT * FROM projects WHERE is_deleted = 0 ORDER BY budget DESC LIMIT 1")).fetchone()
+#                     if big_proj:
+#                         final_results.append({"type": "chat", "message": f"🏆 **Highest Budget Project:** System ke hisaab se sabse bada project **{big_proj.name}** hai."})
+#                         projs = [big_proj]; target = "SKIP_SEARCH"
+
+#                 if target != "SKIP_SEARCH":
+#                     is_refurbished = is_time_remaining = is_overdue = False
+#                     raw_status = str(filters.get("status") or "").lower().strip()
+#                     status_mapping = {"in progress": "in_progress", "on_hold": "hold", "pending": "hold", "completed": "completed", "new": "new", "refurbished": "refurbished", "remaining": "remaining", "overdue": "overdue"}
+#                     active_status = status_mapping.get(raw_status, raw_status)
+
+#                     if active_status == "refurbished": is_refurbished = True; active_status = ""
+#                     elif active_status == "remaining": is_time_remaining = True; active_status = ""
+#                     elif active_status == "overdue": is_overdue = True; active_status = ""
+
+#                     if any(w in low_q for w in ["running", "chalu", "progress"]): active_status = "in_progress"
+#                     elif any(w in low_q for w in ["completed", "poora", "khatam", "done"]): active_status = "completed"
+#                     elif any(w in low_q for w in ["hold", "ruka", "pending"]): active_status = "hold"
+#                     if any(w in low_q for w in ["refurbished", "purana", "repair"]): is_refurbished = True
+#                     if not is_time_remaining and any(w in low_q for w in ["remaining", "baki", "bache"]): is_time_remaining = True; active_status = ""; limit = 50
+#                     if not is_overdue and any(w in low_q for w in ["late", "overdue", "delay"]): is_overdue = True; active_status = ""; limit = 50
+
+#                     ignore_words = ["all", "list", "projects", "latest", "project", "site"]
+#                     if target_lower in ignore_words: target = ""; limit = 50
+
+#                     query = "SELECT * FROM projects WHERE is_deleted = 0"
+#                     params = {}
+#                     if active_status and active_status != "all": query += " AND LOWER(status) = :st"; params["st"] = active_status
+#                     if is_refurbished: query += " AND refurbish = 1"
+#                     if is_time_remaining or is_overdue:
+#                         today_str = datetime.date.today().strftime('%Y-%m-%d')
+#                         if is_time_remaining: query += " AND (end_date >= :today OR deadline >= :today)"; params["today"] = today_str
+#                         elif is_overdue: query += " AND (end_date < :today OR deadline < :today) AND LOWER(status) != 'completed'"; params["today"] = today_str
+
+#                     base_filter_query = query
+#                     if target:
+#                         words = target_lower.split()
+#                         target_conds = " AND ".join([f"(LOWER(name) LIKE :t{i} OR LOWER(comment) LIKE :t{i})" for i in range(len(words))])
+#                         query += f" AND ({target_conds})"
+#                         for i, w in enumerate(words): params[f"t{i}"] = f"%{w}%"
+
+#                     projs = db.execute(text(query + f" ORDER BY id DESC LIMIT :limit"), {**params, "limit": limit}).fetchall()
+#                     if not projs and target and len(target) > 3:
+#                         corrected_name = smart_match(target, category="project")
+#                         if corrected_name and corrected_name.lower() != target_lower:
+#                             fallback_query = base_filter_query + " AND LOWER(name) LIKE :cn"
+#                             params["cn"] = f"%{corrected_name.lower()}%"
+#                             projs = db.execute(text(fallback_query + f" ORDER BY id DESC LIMIT :limit"), {**params, "limit": limit}).fetchall()
+
+#                 if not projs:
+#                     final_results.append({"type": "chat", "message": "Bhai, lagta hai in filters par koi project abhi nahi mil raha store data mein. 🧐"})
+#                 elif len(projs) == 1:
+#                     p = projs[0]
+#                     # --- YAHAN HAI CALCULATION LOGIC ---
+#                     prod_statuses = db.execute(text("SELECT status FROM project_products WHERE project_id = :pid AND is_deleted=0"), {"pid": p.id}).fetchall()
+#                     status_map = {'Fabrication': 25, 'Assembly': 50, 'Machining': 75, 'Completed': 100}
+                    
+#                     if prod_statuses:
+#                         scores = [status_map.get(r[0], 0) for r in prod_statuses]
+#                         progress = round(sum(scores) / len(scores))
+#                     else:
+#                         progress = 0
+#                     # -----------------------------------
+
+#                     machine_type = "Refurbished (Purani/Repair) 🛠️" if getattr(p, 'refurbish', 0) == 1 else "New Machine 🆕"
+#                     card_data = {
+#                         "type": "project", "project_name": str(p.name),
+#                         "category": f"{machine_type} | {str(p.status).replace('_', ' ').capitalize()}", 
+#                         "amount": float(p.budget or 0),
+#                         "start_date": str(p.start_date) if p.start_date else "N/A", 
+#                         "end_date": str(p.end_date or p.deadline or "N/A"),
+#                         "comments": str(p.comment or ""), 
+#                         "stage": f"{progress}%",  # ✅ Ab sahi percentage aayega
+#                         "priority": str(p.priority).upper()
+#                     }
+#                     final_results.append({"type": "chat", "message": f"Lijiye bhai, **{p.name}** ki poori detail sheet ready hai 📋:"})
+#                     final_results.append(card_data)
+
+#                 else:
+#                     final_results.append({"type": "chat", "message": f"haan mil gaya 👍 Mujhe **{len(projs)} projects** mile hain:"})
+#                     for p in projs:
+#                         # --- YAHAN BHI CALCULATE KARO ---
+#                         prod_statuses = db.execute(text("SELECT status FROM project_products WHERE project_id = :pid AND is_deleted=0"), {"pid": p.id}).fetchall()
+#                         status_map = {'Fabrication': 25, 'Assembly': 50, 'Machining': 75, 'Completed': 100}
+#                         progress = round(sum([status_map.get(r[0], 0) for r in prod_statuses]) / len(prod_statuses)) if prod_statuses else 0
+                        
+#                         type_tag = "Refurbished" if getattr(p, 'refurbish', 0) == 1 else "New Machine"
+#                         final_results.append({
+#                             "type": "project", "project_name": str(p.name),
+#                             "category": f"{type_tag} | {str(p.status).replace('_', ' ').capitalize()}", "amount": float(p.budget or 0),
+#                             "stage": f"{progress}%", # ✅ Ab yahan bhi sahi aayega
+#                             "priority": str(p.priority).upper()
+#                         })
+#             except Exception as e: final_results.append({"type": "chat", "message": f"Project Runtime Error: {str(e)}"})
+
+#         # 🏭 BRANCH 2: SUPPLIER LOGIC 
+#         elif intent == "supplier_search":
+#             try:
+#                 target_lower = original_target.lower()
+#                 is_all_request = not original_target and any(w in low_q for w in ["all", "saare", "sabhi", "list"])
+#                 sups = []
+
+#                 if is_all_request:
+#                     sups = db.execute(text("SELECT * FROM suppliers ORDER BY id DESC LIMIT :l"), {"l": limit}).fetchall()
+#                 else:
+#                     if re.match(r'^sup[-\s]?\d+$', target_lower):
+#                         code_search = re.sub(r'^sup[-\s]?', '', target_lower)
+#                         sups = db.execute(text("SELECT * FROM suppliers WHERE supplier_code = :c OR id = :c LIMIT 1"), {"c": code_search}).fetchall()
+#                     if not sups and original_target:
+#                         sups = db.execute(text("SELECT * FROM suppliers WHERE LOWER(supplier_name) = :q LIMIT 1"), {"q": target_lower}).fetchall()
+#                     if not sups and original_target:
+#                         words = target_lower.split()
+#                         if words:
+#                             like_conds = " AND ".join([f"(LOWER(supplier_name) LIKE :w{i} OR mobile LIKE :w{i})" for i in range(len(words))])
+#                             params = {f"w{i}": f"%{w}%" for i, w in enumerate(words)}
+#                             params["l"] = limit
+#                             sups = db.execute(text(f"SELECT * FROM suppliers WHERE {like_conds} LIMIT :l"), params).fetchall()
+                    
+#                     # 🚀 SPELLING TYPO CATCHER (Fuzzy Match - Optimized Cutoff to 0.45)
+#                     if not sups and len(original_target) > 2: 
+#                         corrected = smart_match(original_target, category="supplier")
+#                         if corrected and corrected != original_target:
+#                             sups = db.execute(text("SELECT * FROM suppliers WHERE LOWER(supplier_name) = :q LIMIT 1"), {"q": corrected.lower()}).fetchall()
+#                         if not sups and sup_names_list:
+#                             closest_match = difflib.get_close_matches(target_lower, [str(s).lower() for s in sup_names_list], n=1, cutoff=0.45)
+#                             if closest_match:
+#                                 sups = db.execute(text("SELECT * FROM suppliers WHERE LOWER(supplier_name) = :q LIMIT 1"), {"q": closest_match[0]}).fetchall()
+
+#                 if not sups: 
+#                     if original_target: final_results.append({"type": "chat", "message": f"Bhai, '{original_target}' naam ka koi Supplier nahi mila mujhe. 🧐"})
+#                 elif len(sups) > 1: 
+#                     final_results.append({"type": "chat", "message": f"haan mil gaya 👍 Mujhe {len(sups)} suppliers mile hain:"})
+#                     final_results.append({"type": "dropdown", "message": "Select a supplier for details:", "items": [{"id": str(getattr(s, 'supplier_name', 'Unknown')), "name": str(getattr(s, 'supplier_name', 'Unknown'))} for s in sups]})
+#                 else:
+#                     s = sups[0]
+#                     sup_name = str(getattr(s, 'supplier_name', 'Unknown'))
+#                     detail_msg = None
+#                     if any(w in low_q for w in ["mobile", "phone", "number", "call", "contact"]): detail_msg = f"📞 **{sup_name}** ka contact number **{str(getattr(s, 'mobile', 'N/A') or 'N/A')}** hai."
+#                     elif any(w in low_q for w in ["email", "mail", "id"]): detail_msg = f"📧 **{sup_name}** ki email ID **{str(getattr(s, 'email', 'N/A') or 'N/A')}** hai."
+#                     elif any(w in low_q for w in ["gst", "gstin", "tax"]): detail_msg = f"🏢 **{sup_name}** ka GST number **{str(getattr(s, 'gstin', 'N/A') or 'N/A')}** hai."
+#                     elif any(w in low_q for w in ["city", "address", "kaha", "location"]): detail_msg = f"📍 **{sup_name}** **{str(getattr(s, 'city', 'N/A') or 'N/A')}** mein based hain."
+
+#                     if detail_msg:
+#                         final_results.append({"type": "chat", "message": detail_msg + "\n\n💡 *Kya main inki poori profile ya orders load karun?*"})
+#                     else:
+#                         is_asking_details = any(w in low_q for w in ["detail", "details", "contact", "number", "profile", "hisab", "account", "info"])
+#                         if not is_asking_details and not is_all_request and "sup-" not in target_lower and not any(w in low_q for w in ["po", "order", "bill"]):
+#                             msg = f"Bhai, mujhe **{sup_name}** system mein mil gaye hain. Aap inka kya dekhna chahte hain?\n\n📦 Type **'Orders'**\n👤 Type **'Details'**"
+#                             final_results.append({"type": "chat", "message": msg})
+#                             continue
+                                        
+#                         if "po_search" not in intents: final_results.append({"type": "chat", "message": f"haan ye raha 👍 **{sup_name}** ka profile mil gaya hai:"})
+#                         inv_items = db.execute(text("SELECT i.name, SUM(CASE WHEN LOWER(t.txn_type) = 'in' THEN t.quantity ELSE -t.quantity END) as stock FROM inventories i JOIN stock_transactions t ON i.id = t.inventory_id WHERE t.supplier_id = :sid GROUP BY i.id, i.name HAVING stock != 0"), {"sid": s.id}).fetchall()
+#                         final_results.append({
+#                             "type": "result", 
+#                             "supplier": {
+#                                 "id": s.id, "name": sup_name, "code": str(getattr(s, 'supplier_code', 'N/A') or 'N/A'), 
+#                                 "mobile": str(getattr(s, 'mobile', 'N/A') or 'N/A'), "city": str(getattr(s, 'city', 'N/A') or 'N/A'), 
+#                                 "email": str(getattr(s, 'email', 'N/A') or 'N/A'), "gstin": str(getattr(s, 'gstin', 'N/A') or 'N/A')
+#                             }, 
+#                             "items": [{"name": str(row.name), "stock": float(row.stock)} for row in inv_items]
+#                         })
+#             except Exception as e: final_results.append({"type": "chat", "message": f"Supplier search error: {str(e)}"})
+
+#         # 🧾 BRANCH 3: PURCHASE ORDERS (PO)
+#         elif intent == "po_search":
+#             try:
+#                 target = original_target.strip()
+#                 pos = []
+#                 if any(w in low_q for w in ["all", "saare", "sabhi", "list"]): limit = 50
+#                 if any(w in low_q for w in ["last", "latest", "new", "naya"]): limit = 1
+
+#                 raw_status = str(filters.get("status") or "").lower().strip()
+#                 status_mapping = {"completed": "completed", "draft": "draft", "approved": "approved"}
+#                 active_status = status_mapping.get(raw_status, raw_status)
+#                 if any(w in low_q for w in ["completed", "khatam", "poora", "done"]): active_status = "completed"
+#                 elif any(w in low_q for w in ["approved", "ok"]): active_status = "approved"
+#                 elif any(w in low_q for w in ["draft", "pending"]): active_status = "draft"
+
+#                 ignore_words = ["all", "list", "pos", "po", "orders", "order"]
+#                 if target.lower() in ignore_words: target = ""; limit = 50
+
+#                 query = "SELECT p.*, s.supplier_name FROM purchase_orders p LEFT JOIN suppliers s ON p.supplier_id = s.id WHERE 1=1"
+#                 params = {}
+#                 if active_status and active_status != "all": query += " AND LOWER(p.status) = :st"; params["st"] = active_status
+
+#                 base_filter_query = query
+#                 if target:
+#                     if re.match(r'^\d+$', target):
+#                         query += " AND (p.po_number LIKE :t OR p.id = :id_val)"
+#                         params["t"] = f"%{target}%"; params["id_val"] = int(target)
+#                     else:
+#                         words = target.lower().split()
+#                         target_conds = " AND ".join([f"(LOWER(s.supplier_name) LIKE :t{i} OR LOWER(p.remarks) LIKE :t{i})" for i in range(len(words))])
+#                         query += f" AND ({target_conds})"
+#                         for i, w in enumerate(words): params[f"t{i}"] = f"%{w}%"
+
+#                 pos = db.execute(text(query + f" ORDER BY p.id DESC LIMIT :limit"), {**params, "limit": limit}).fetchall()
+#                 if not pos and target and not re.match(r'^\d+$', target) and len(target) > 3:
+#                     corrected_sup = smart_match(target, category="supplier")
+#                     if corrected_sup and corrected_sup.lower() != target.lower():
+#                         fallback_query = base_filter_query + " AND LOWER(s.supplier_name) LIKE :cs"
+#                         params["cs"] = f"%{corrected_sup.lower()}%"
+#                         pos = db.execute(text(fallback_query + f" ORDER BY p.id DESC LIMIT :limit"), {**params, "limit": limit}).fetchall()
+
+#                 if not pos:
+#                     final_results.append({"type": "chat", "message": "Bhai, is record criteria par koi Purchase Order nahi mila database mein. 🧐"})
+#                 elif len(pos) == 1 or limit == 1:
+#                     p = pos[0]
+#                     final_results.append({"type": "chat", "message": f"ye raha 👍 **{p.po_number}** ka full analytics ledger data:"})
+#                     final_results.append({"type": "po", "po_id": int(p.id), "po_no": str(p.po_number), "supplier": str(p.supplier_name or "N/A"), "date": str(p.po_date or "N/A"), "total": float(p.total_amount or 0), "advance": float(p.advance_amount or 0), "balance": float(p.balance_amount or 0), "status": str(p.status).upper()})
+#                 else:
+#                     final_results.append({"type": "chat", "message": f"haan mil gaya 👍 Mujhe **{len(pos)} purchase orders** mile hain matching states mein:"})
+#                     final_results.append({"type": "po_list", "orders": [{"id": int(p.id), "po_no": str(p.po_number), "supplier": str(p.supplier_name or "N/A"), "date": str(p.po_date or "N/A"), "total": float(p.total_amount or 0), "balance": float(p.balance_amount or 0), "status": str(p.status).upper()} for p in pos]})
+#             except Exception as e: final_results.append({"type": "chat", "message": f"PO Engine Runtime Fault: {str(e)}"})
+
+#         # 📦 BRANCH 4: INVENTORY SEARCH
+#         elif intent == "search":
+#             try:
+#                 raw_target = str(ai_data.get("search_target") or "").lower().strip()
+#                 if not raw_target: raw_target = low_q
+#                 clean_target = re.sub(r'[?\'"!.,]', '', raw_target).strip()
+#                 clean_targets = []
+                
+#                 if len(clean_target) > 1: 
+#                     clean_targets.append(smart_match(clean_target, category="inventory"))
+#                 if not clean_targets and ("bearing" in low_q or "belt" in low_q): 
+#                     clean_targets = ["bearing" if "bearing" in low_q else "belt"]
+
+#                 all_inv_names = [row.name.lower() for row in db.execute(text("SELECT name FROM inventories WHERE is_deleted=0")).fetchall() if row.name]
+#                 found_any = False
+
+#                 for t in clean_targets:
+#                     query_str = "SELECT id, name, model, type, classification, placement FROM inventories WHERE (LOWER(name) LIKE :q OR LOWER(model) LIKE :q) AND is_deleted=0"
+#                     items = db.execute(text(query_str + " LIMIT 30"), {"q": f"%{t}%"}).fetchall()
+#                     if not items:
+#                         closest = difflib.get_close_matches(t, all_inv_names, n=1, cutoff=0.45)
+#                         if closest: 
+#                             items = db.execute(text(query_str + " LIMIT 30"), {"q": f"%{closest[0]}%"}).fetchall()
+#                             t = closest[0]
+#                     if not items: continue
+#                     found_any = True
+
+#                     ids = tuple([i.id for i in items])
+#                     if len(items) > 1:
+#                         total_sum = db.execute(text("SELECT SUM(CASE WHEN LOWER(txn_type) = 'in' THEN quantity ELSE -quantity END) FROM stock_transactions WHERE inventory_id IN :ids"), {"ids": ids}).scalar() or 0
+#                         final_results.append({"type": "chat", "message": f"haan mil gaya 👍 **Total {t.title()} Stock:** {total_sum:.2f} units available hain."})
+#                         final_results.append({"type": "dropdown", "message": f"Mujhe {len(items)} items mile hain. Kiski details dekhni hai?", "items": [{"id": i.id, "name": f"{i.name} {i.model or ''}"} for i in items]})
+#                     elif len(items) == 1:
+#                         i = items[0]
+#                         stock = float(db.execute(text("SELECT SUM(CASE WHEN LOWER(txn_type) = 'in' THEN quantity ELSE -quantity END) FROM stock_transactions WHERE inventory_id = :id"), {"id": i.id}).scalar() or 0)
+#                         disp_cat = i.type if i.type else "Raw Material"
+#                         disp_loc = i.placement if i.placement else "Main Store"
+#                         disp_class = str(i.classification).upper() if i.classification else "FINISH"
+#                         f, sf, m = (stock, 0, 0) if disp_class == "FINISH" else (0, stock, 0) if "SEMI" in disp_class else (0, 0, stock)
+                        
+#                         final_results.append({"type": "chat", "message": f"haan ye raha 👍 **{i.name}** ka data mil gaya:"})
+#                         final_results.append({"type": "result", "inventory": {"id": i.id, "name": f"{i.name} {i.model or ''}", "category": disp_cat, "placement": disp_loc}, "total_stock": stock, "finish_stock": f, "semi_finish_stock": sf, "machining_stock": m})
+#                 if not found_any: final_results.append({"type": "chat", "message": "Bhai, ye item mere system mein nahi mila. 🧐 Thoda spelling check karoge?"})
+#             except Exception as e: final_results.append({"type": "chat", "message": f"Inventory Error: {str(e)}"})
+
+#         # 🧠 BRANCH 5: PURE ADVANCED NL2SQL ANALYTICS ENGINE
+#         elif intent == "sql_analysis":
+#             try:
+#                 nl2_res = _nl2sql_response(raw_q, db, history=chat_history)
+#                 if nl2_res and "results" in nl2_res:
+#                     final_results.extend(nl2_res["results"])
+#                 else:
+#                     final_results.append({"type": "chat", "message": "Bhai, is complex query ka data nikalne mein thodi dikkat aayi. 🛑"})
+#             except Exception as e: 
+#                 final_results.append({"type": "chat", "message": f"Calculations Module Fail: {str(e)}"})
+
+#     # ══════════════════════════════════════════════════════════════════════════
+#     # RECONCILIATION LAYER & LAYER 2 AUTO-FALLBACK TRIGGER
+#     # ══════════════════════════════════════════════════════════════════════════
+#     if len(final_results) > 1:
+#         final_response = {"results": final_results}
+#     else:
+#         is_english = any(w in low_q for w in ["what", "how", "show", "list", "get", "who"])
+#         suggestion = "I couldn't quite resolve that query.\nTry asking about:\n1. **Purchase Orders**\n2. **Inventory Stock**\n3. **Suppliers Profile**" if is_english else "Maaf kijiye, main is query ko process nahi kar paaya.\nAap poochh sakte hain:\n1. **Purchase Orders Details**\n2. **Inventory Available Stock**\n3. **Suppliers Account Statements**"
+#         final_response = {"results": [{"type": "chat", "message": suggestion}]}
+
+#     # 🚨 AUTOMATIC LAYER 2 NL2SQL FALLBACK ROUTE (OPTIMIZED ROUTING FOR TYPOS)
+#     if _is_poor_result(final_response) and (is_complex_query or "sql_analysis" in intents):
+#         nl2_resp = _nl2sql_response(raw_q, db, history=chat_history)
+#         if nl2_resp:
+#             final_response = nl2_resp
+#             print(f"🔥 [Layer 2 Fallback Activated] Processed Complex Query: {raw_q!r}")
+#     elif _is_poor_result(final_response):
+#         final_response = {"results": [{"type": "chat", "message": f"Bhai, '{raw_q}' ka koi exact card ya data mujhe abhi nahi mila. Thodi spelling check karke wapas batao! 🧐"}]}
+
+#     process_time = time.time() - start_time
+#     try: log_query_pro(user_role, raw_q, intents, final_response, process_time)
+#     except Exception as e: print(f"Logging Worker Block Exception: {e}")
+    
+#     return final_response
+
+
+# # ══════════════════════════════════════════════════════════════════════════════
+# # AUXILIARY UTILITY HTTP ENDPOINTS & DAEMON WORKERS
+# # ══════════════════════════════════════════════════════════════════════════════
+
+# @router.get("/quick-search/supplier")
+# def quick_search_supplier(q: str = "", limit: int = 60, db: Session = Depends(get_db)):
+#     if not q.strip(): rows = db.execute(text("SELECT id, supplier_name, city, mobile FROM suppliers ORDER BY id DESC LIMIT :l"), {"l": limit}).fetchall()
+#     else:
+#         words = q.strip().lower().split()
+#         cond = " AND ".join(f"(LOWER(supplier_name) LIKE :w{i} OR LOWER(COALESCE(city,'')) LIKE :w{i} OR COALESCE(mobile,'') LIKE :w{i})" for i in range(len(words)))
+#         rows = db.execute(text(f"SELECT id, supplier_name, city, mobile FROM suppliers WHERE {cond} ORDER BY supplier_name LIMIT :l"), {**{f"w{i}": f"%{w}%" for i, w in enumerate(words)}, "l": limit}).fetchall()
+#     return {"rows": [{"id": int(r.id), "name": str(r.supplier_name or ""), "city": str(r.city or ""), "mobile": str(r.mobile or "")} for r in rows]}
+
+# @router.get("/quick-search/po")
+# def quick_search_po(q: str = "", limit: int = 60, db: Session = Depends(get_db)):
+#     base = "SELECT p.id, p.po_number, p.po_date, p.total_amount, p.status, s.supplier_name FROM purchase_orders p LEFT JOIN suppliers s ON p.supplier_id=s.id "
+#     if not q.strip(): rows = db.execute(text(base + "ORDER BY p.id DESC LIMIT :l"), {"l": limit}).fetchall()
+#     else:
+#         words = q.strip().lower().split()
+#         cond = " AND ".join(f"(LOWER(p.po_number) LIKE :w{i} OR LOWER(COALESCE(s.supplier_name,'')) LIKE :w{i} OR LOWER(COALESCE(p.status,'')) LIKE :w{i})" for i in range(len(words)))
+#         rows = db.execute(text(base + f"WHERE {cond} ORDER BY p.po_date DESC LIMIT :l"), {**{f"w{i}": f"%{w}%" for i, w in enumerate(words)}, "l": limit}).fetchall()
+#     return {"rows": [{"id": int(r.id), "po_number": str(r.po_number or ""), "date": str(r.po_date or ""), "total": float(r.total_amount or 0), "status": str(r.status or ""), "supplier": str(r.supplier_name or "")} for r in rows]}
+
+# @router.get("/quick-search/inventory")
+# def quick_search_inventory(q: str = "", limit: int = 60, db: Session = Depends(get_db)):
+#     base = "SELECT i.id, i.name, i.unit, COALESCE(SUM(CASE WHEN LOWER(st.txn_type)='in' THEN st.quantity ELSE -st.quantity END),0) AS stock FROM inventories i LEFT JOIN stock_transactions st ON st.inventory_id=i.id WHERE i.is_deleted=0 "
+#     if not q.strip(): rows = db.execute(text(base + "GROUP BY i.id,i.name,i.unit ORDER BY i.id DESC LIMIT :l"), {"l": limit}).fetchall()
+#     else:
+#         words = q.strip().lower().split()
+#         cond = " AND ".join(f"LOWER(i.name) LIKE :w{i}" for i in range(len(words)))
+#         rows = db.execute(text(base + f"AND {cond} GROUP BY i.id,i.name,i.unit ORDER BY i.name LIMIT :l"), {**{f"w{i}": f"%{w}%" for i, w in enumerate(words)}, "l": limit}).fetchall()
+#     return {"rows": [{"id": int(r.id), "name": str(r.name or ""), "unit": str(r.unit or ""), "stock": float(r.stock or 0)} for r in rows]}
+
+# @router.get("/po/{po_id}/card")
+# def po_card(po_id: int, db: Session = Depends(get_db)):
+#     row = db.execute(text("SELECT p.*, s.supplier_name FROM purchase_orders p LEFT JOIN suppliers s ON p.supplier_id=s.id WHERE p.id=:id LIMIT 1"), {"id": po_id}).fetchone()
+#     if not row: return {"results": [{"type": "chat", "message": "PO nahi mila."}]}
+#     return {"results": [{"type": "chat", "message": f"ye raha 👍 **{row.po_number}** ka detail:"}, {"type": "po", "po_id": int(row.id), "po_no": str(row.po_number or ""), "supplier": str(row.supplier_name or ""), "date": str(row.po_date or ""), "total": float(row.total_amount or 0), "advance": float(row.advance_amount or 0), "balance": float(row.balance_amount or 0), "status": str(row.status or "")}]}
+
+# @router.get("/supplier/{supplier_id}/card")
+# def supplier_card(supplier_id: int, db: Session = Depends(get_db)):
+#     s = db.execute(text("SELECT * FROM suppliers WHERE id=:id LIMIT 1"), {"id": supplier_id}).fetchone()
+#     if not s: return {"results": [{"type": "chat", "message": "Supplier nahi mila."}]}
+#     inv_items = db.execute(text("SELECT i.id, i.name, SUM(CASE WHEN LOWER(t.txn_type)='in' THEN t.quantity ELSE -t.quantity END) AS stock FROM inventories i JOIN stock_transactions t ON i.id=t.inventory_id WHERE t.supplier_id=:sid GROUP BY i.id,i.name HAVING stock!=0"), {"sid": supplier_id}).fetchall()
+#     return {"results": [{"type": "chat", "message": f"ye raha 👍 **{s.supplier_name}** ka profile:"}, {"type": "result", "supplier": {"id": int(s.id), "name": str(s.supplier_name or ""), "code": str(getattr(s, "supplier_code", "") or ""), "mobile": str(getattr(s, "mobile", "") or ""), "city": str(getattr(s, "city", "") or ""), "email": str(getattr(s, "email", "") or ""), "gstin": str(getattr(s, "gstin", "") or "")}, "items": [{"name": r.name, "stock": float(r.stock)} for r in inv_items]}]}
+
+# @router.get("/inventory/{inventory_id}/card")
+# def inventory_card(inventory_id: int, db: Session = Depends(get_db)):
+#     inv = db.execute(text("SELECT * FROM inventories WHERE id=:id LIMIT 1"), {"id": inventory_id}).fetchone()
+#     if not inv: return {"results": [{"type": "chat", "message": "Item nahi mila."}]}
+#     stock = float(db.execute(text("SELECT COALESCE(SUM(CASE WHEN LOWER(txn_type)='in' THEN quantity ELSE -quantity END),0) FROM stock_transactions WHERE inventory_id=:id"), {"id": inventory_id}).scalar() or 0)
+#     cls = (getattr(inv, "classification", "") or "").lower()
+#     finish = 0 if ("machining" in cls or "semi" in cls) else stock; semi = stock if "semi" in cls else 0; machining= stock if "machining" in cls else 0
+#     return {"results": [{"type": "chat", "message": f"ye raha 👍 **{inv.name}** ka stock:"}, {"type": "result", "inventory": {"id": int(inv.id), "name": str(inv.name or ""), "category": cls.upper(), "placement": str(getattr(inv, "placement", "") or ""), "unit": str(getattr(inv, "unit", "") or ""), "model": str(getattr(inv, "model", "") or ""), "grade": str(getattr(inv, "grade", "") or "")}, "total_stock": stock, "finish_stock": finish, "semi_finish_stock": semi, "machining_stock": machining}]}
+
+# @router.get("/inventory/{inventory_id}/stock-log")
+# def inventory_stock_log(inventory_id: int, db: Session = Depends(get_db)):
+#     rows = db.execute(text("SELECT txn_date, txn_type, quantity, ref_type, ref_no, remarks FROM stock_transactions WHERE inventory_id = :iid ORDER BY txn_date DESC, id DESC LIMIT 100"), {"iid": inventory_id}).fetchall()
+#     running = 0.0; result_rows = []
+#     for r in reversed(rows):
+#         qty = float(r.quantity or 0)
+#         running += qty if str(r.txn_type).lower() == "in" else -qty
+#         result_rows.append({"date": str(r.txn_date or ""), "type": str(r.txn_type or ""), "qty": qty, "balance": round(running, 2), "ref_type": str(r.ref_type or ""), "ref_no": str(r.ref_no or ""), "remarks": str(r.remarks or "")})
+#     result_rows.reverse()   
+#     return {"rows": result_rows, "current_stock": round(running, 2)}
+
+# @router.get("/supplier/{supplier_id}/pos")
+# def supplier_pos(supplier_id: int, db: Session = Depends(get_db)):
+#     rows = db.execute(text("SELECT id, po_number, po_date, total_amount, advance_amount, balance_amount, status, expected_delivery, delivery_status FROM purchase_orders WHERE supplier_id = :sid ORDER BY po_date DESC LIMIT 50"), {"sid": supplier_id}).fetchall()
+#     return {"rows": [{"id": int(r.id), "po_number": str(r.po_number), "date": str(r.po_date or ""), "total": float(r.total_amount or 0), "advance": float(r.advance_amount or 0), "balance": float(r.balance_amount or 0), "status": str(r.status or ""), "expected": str(r.expected_delivery or ""), "delivery_status": str(r.delivery_status or "")} for r in rows]}
+
+# @router.get("/logs")
+# def view_logs():
+#     log_file = "chat_history.json"
+#     if not os.path.exists(log_file): return {"message": "Abhi tak koi chat nahi hui database records mein."}
+#     try:
+#         with open(log_file, "r", encoding="utf-8") as f: logs = [json.loads(line) for line in f if line.strip()]
+#         return {"total_chats": len(logs), "latest_logs": logs[::-1]}
+#     except Exception as e: return {"error": str(e)}
+
+# @router.delete("/logs/clear")
+# def clear_logs(secret_key: str = "mewar123"):
+#     if secret_key != "mewar@12345": return {"error": "Authentication Passcode Exception. Clear logs access denied."}
+#     try: open("chat_history.json", "w", encoding="utf-8").close(); return {"success": True, "message": "Logs clean state cleared down successfully."}
+#     except Exception as e: return {"error": str(e)}
+
+# # ── 6. BACKGROUND DAEMON CHANNELS (WHATSAPP PARSING WORKERS) ─────────────────
+# async def process_chat_message(user_text: str) -> str:
+#     db = SessionLocal()
+#     try:
+#         request_data = ChatRequest(query=user_text, role="superadmin")
+#         response_dict = chatbot(request_data, db)
+#         final_whatsapp_text = ""
+#         if "results" in response_dict:
+#             for res in response_dict["results"]:
+#                 res_type = res.get("type")
+#                 if res_type == "chat": final_whatsapp_text += res.get("message", "") + "\n\n"
+#                 elif res_type == "po": final_whatsapp_text += f"📄 *PO No:* {res.get('po_no')}\n🏢 *Supplier:* {res.get('supplier')}\n💰 *Total:* ₹{res.get('total', 0):,.2f}\n⏳ *Balance:* ₹{res.get('balance', 0):,.2f}\n📌 *Status:* {res.get('status')}\n\n"
+#                 elif res_type == "result" and "inventory" in res:
+#                     inv = res["inventory"]
+#                     final_whatsapp_text += f"📦 *{inv.get('name')}*\n📊 *Total Stock:* {res.get('total_stock')}\n📍 *Location:* {inv.get('placement')}\n\n"
+#                 elif res_type == "dropdown":
+#                     final_whatsapp_text += res.get("message", "") + "\n"
+#                     for item in res.get("items", []): final_whatsapp_text += f"🔸 {item.get('name')}\n"
+#                     final_whatsapp_text += "\n*(Kripya inme se ek naam type karein)*\n\n"
+#                 elif res_type == "project": final_whatsapp_text += f"🏗️ *Project:* {res.get('project_name')}\n📌 *Status:* {res.get('category')}\n💰 *Budget:* ₹{res.get('amount', 0):,.2f}\n\n"
+#         if not final_whatsapp_text.strip(): final_whatsapp_text = "Maaf karna bhai, mujhe iska valid response nahi mil paya database records mein. 😅"
+#         return final_whatsapp_text.strip()
+#     except Exception as e: 
+#         print(f"❌ WhatsApp Parsing Error: {e}")
+#         return "Bhai, backend pipeline process karne mein technical error hai. Try again later! 🙏"
+#     finally: db.close()
+
+# def generate_morning_briefing():
+#     db = SessionLocal()
+#     try:
+#         po_res = db.execute(text("SELECT COUNT(id), SUM(balance_amount) FROM purchase_orders WHERE balance_amount>0 AND LOWER(status)!='completed'")).fetchone()
+#         proj_res = db.execute(text("SELECT COUNT(id) FROM projects WHERE is_deleted=0 AND (end_date < CURRENT_DATE OR deadline < CURRENT_DATE) AND LOWER(status)!='completed'")).fetchone()
+#         pending_pos = po_res[0] or 0; pending_amt = po_res[1] or 0.0; overdue = proj_res[0] or 0
+#         msg = f"🌅 *Good Morning! Here is your Mewar ERP Daily Briefing:* 🌅\n\n📦 *Pending Purchase Orders:* {pending_pos} Orders (Total Due: ₹{float(pending_amt):,.2f})\n"
+#         if overdue > 0: msg += f"🚨 *Alert:* {overdue} Projects apne deadline se late chal rahe hain!\n"
+#         else: msg += f"✅ *Projects:* Sabhi active projects proper timeline standard par chal rahe hain.\n"
+#         print("\n" + "⭐"*30 + "\n🤖 AUTO-TRIGGERED DAILY AUTOMATION DAEMON:\n" + msg + "⭐"*30 + "\n")
+#     except Exception as e: print(f"❌ Automated Cron Worker Briefing Fault: {e}")
+#     finally: db.close()
+
+#--------------------------------------------------------1686 line number -----------------------------------------------------------------
+#--------------------------------------------------------new fully ai code ----------------------------------------------------------------------------------
+import time
+import datetime
 from fastapi import APIRouter, Depends, Query as _Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+import re
+import json
+import os
 
 from app.db.database import get_db, SessionLocal
 from app.schemas.chat import ChatRequest
+# 🚀 NAYA: Ab 'ollama_engine.py' se import karenge
 from app.services.ollama_engine import ask_ollama
-from app.services.nl2sql_engine import generate_sql, format_answer
-from apscheduler.schedulers.background import BackgroundScheduler
+from app.services.nl2sql_engine import get_db_schema, generate_sql, format_answer
 
-router = APIRouter(prefix="/v2-chatbot", tags=["Chatbot Final"])
+router = APIRouter(prefix="/chatbot", tags=["Chatbot Final"])
 
+# ── 1. SECURITY FIREWALL FUNCTION ──────────────────────────────────────────
+def is_safe_sql(sql_query: str) -> bool:
+    if not sql_query: return False
+    q = sql_query.upper().strip()
+    
+    # 🟢 UPDATE: yahan q.startswith("(") add kar diya hai
+    if not (q.startswith("SELECT") or q.startswith("WITH") or q.startswith("(")): 
+        return False
+        
+    dangerous_words = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE"]
+    for word in dangerous_words:
+        if re.search(rf'\b{word}\b', q): return False 
+    return True
 
-# ── Role permissions ──────────────────────────────────────────────────────────
+# ── 2. ROLE PERMISSIONS MATRIX ──────────────────────────────────────────────
 ROLE_PERMISSIONS = {
-    "supervisor":     ["inventory", "project", "general_chat"],
-    "sales":          ["inventory", "general_chat"],
-    "purchase":       ["inventory", "supplier", "po", "general_chat"],
-    "purchase admin": ["inventory", "supplier", "po", "financials", "general_chat"],
-    "store admin":    ["inventory", "po", "project", "general_chat"],
-    "store department": ["inventory", "general_chat"],
-    "hod":            ["inventory", "project", "supplier", "po", "financials", "general_chat"],
-    "hr":             ["general_chat"],
+    "supervisor":      ["inventory", "project", "general_chat"],
+    "sales":           ["inventory", "general_chat"],
+    "purchase":        ["inventory", "supplier", "po", "general_chat"],
+    "purchase admin":  ["inventory", "supplier", "po", "financials", "general_chat"],
+    "store admin":     ["inventory", "po", "project", "general_chat"],
+    "store department":["inventory", "general_chat"],
+    "hod":             ["inventory", "project", "supplier", "po", "financials", "general_chat"],
+    "hr":              ["general_chat"],
 }
 
-# ── Off-topic guard ───────────────────────────────────────────────────────────
+# ── 3. OFF-TOPIC CONSTANTS ─────────────────────────────────────
 _ERP_KEYWORDS = {
     "supplier", "vendor", "party", "sup",
-    "po", "order", "purchase", "transit", "delivery", "grn", "dispatch",
+    "po", "order", "orders", "purchase", "transit", "delivery", "grn", "dispatch",
     "stock", "maal", "item", "inventory", "qty", "quantity",
-    "project", "site", "crusher","how many",
+    "project", "site", "crusher",
     "balance", "payment", "invoice", "gst", "tax", "cgst", "sgst",
     "rokra", "paisa", "kharcha", "hisab",
     "mewar", "erp", "sale", "sales", "report", "employee", "account",
-    # Hindi query verbs & RS form keywords
     "slip", "request", "banao", "batao", "dikhao", "milao", "details",
     "kitna", "kitne", "kahan", "kaisa", "kab", "lagao", "nikalo",
-    # general — if user is asking a "how many / total / list" ERP question
     "total", "list", "count", "kitni", "sabhi", "saare",
-    # query action words — any sentence starting with these is likely ERP
     "show", "find", "get", "check", "all", "mere", "mera",
 }
 
-_POOR_SIGNALS = [
-    "theek se samajh nahi", "maaf kijiye", "clear batao", "clearly batao",
-    "kripya", "naam batao", "couldn't understand", "i'm sorry",
-    "it seems you", "please provide", "thoda clear",
-    # item / supplier not found → try NL2SQL
-    "nahi mila", "nahi mili", "nahi mile", "spelling check karoge",
-    "koi supplier nahi", "koi project nahi",
-    # Ollama reasoning fillers with no actual data — let NL2SQL answer instead
-    "ek sec", "check karta hoon", "dekh raha hoon", "dhundh raha hoon",
-    "data entry nahi hui",
-]
-
-
-_CLEARLY_OFFTOPIC = {
+_CLEANLY_OFFTOPIC = {
     "poem", "poetry", "joke", "weather", "recipe", "cook", "song", "lyrics",
     "translate", "movie", "cricket", "football", "game", "news", "capital of",
     "who is the president", "write a story", "tell me a story",
@@ -1769,549 +2618,255 @@ _CLEARLY_OFFTOPIC = {
 
 def _is_off_topic(query: str) -> bool:
     q = query.lower()
-    # Short queries (≤3 words) are almost always item/name lookups — always allow
-    if len(q.split()) <= 3:
-        return False
-    # Block only if the query matches a clearly non-ERP pattern
-    if any(kw in q for kw in _CLEARLY_OFFTOPIC):
-        return True
-    # Block longer queries that have zero ERP keywords
+    if len(q.split()) <= 3: return False
+    if any(kw in q for kw in _CLEANLY_OFFTOPIC): return True
     return not any(kw in q for kw in _ERP_KEYWORDS)
 
-
-def _is_poor_result(response: dict) -> bool:
-    results = response.get("results", [])
-    data_types = {
-        "result", "po", "dropdown", "project",
-        "po_list", "po_summary", "project_list",
-        "supplier_list", "supplier_items", "supplier_payments",
-    }
-    if any(r.get("type") in data_types for r in results):
-        return False
-    chat_text = " ".join(
-        r.get("message", "") for r in results if r.get("type") == "chat"
-    ).lower()
-    return any(sig in chat_text for sig in _POOR_SIGNALS)
-
-
-# ── FAISS disabled stubs ──────────────────────────────────────────────────────
-def load_faiss_once(db: Session):
-    pass
-
-
-def smart_match(query_text, category="inventory"):
-    return query_text
-
-
-# ── Slang translation ─────────────────────────────────────────────────────────
-def translate_slang(text: str):
-    slang_map = {
-        r'\bmaal\b':   'inventory',
-        r'\bstock\b':  'inventory',
-        r'\bkharcha\b': 'budget',
-        r'\brokra\b':  'balance_amount',
-        r'\bpaisa\b':  'amount',
-        r'\bkitna\b':  'total_stock',
-        r'\bitem\b':   'inventory',
-    }
-    for slang, official in slang_map.items():
-        text = re.sub(slang, official, text, flags=re.IGNORECASE)
-    return text
-
-
-# ── Intent detection ──────────────────────────────────────────────────────────
-def advanced_intent_detector(query: str):
-    q = query.lower()
-    score = {"po_search": 0, "supplier_search": 0, "project_search": 0, "search": 0}
-
-    po_words  = ["po", "order", "orders", "purchase", "transit", "raste", "pending", "dispatch", "delivery"]
-    sup_words = ["supplier", "vendor", "party", "contact", "mobile", "number", "account", "details", "profile"]
-    proj_words = ["project", "site", "crusher", "running", "urgent", "completed", "refurbish"]
-    inv_words  = ["stock", "maal", "item", "inventory", "quantity", "kitna", "qty", "available"]
-    for w in po_words:   score["po_search"]      += 2 if w in q else 0
-    for w in sup_words:  score["supplier_search"] += 2 if w in q else 0
-    for w in proj_words: score["project_search"]  += 2 if w in q else 0
-    for w in inv_words:  score["search"]          += 2 if w in q else 0
-
-    if any(w in q for w in ["stock", "maal", "kitna"]) and any(w in q for w in ["supplier", "party"]):
-        score["search"] += 3
-
-    best = max(score, key=score.get)
-    return best if score[best] > 0 else "search"
-
-
-def clean_target_ultimate(target: str):
-    noise = ["dikhao", "batao", "check", "ka", "ki", "ke", "mein", "inventory",
-             "stock", "orders", "po", "list", "mujhe", "hai", "bhai", "details", "contact"]
-    words   = target.split()
-    cleaned = [w for w in words if w.lower() not in noise]
-    return " ".join(cleaned) if cleaned else target
-
-
-# ── Logger ────────────────────────────────────────────────────────────────────
 def log_query_pro(user_role, query, intents, final_results, process_time):
     bot_reply = "No Response"
     if isinstance(final_results, dict) and "results" in final_results:
-        bot_reply = final_results["results"]
-
-    is_fail = any(w in str(bot_reply).lower()
-                  for w in ["nahi mila", "error", "samajh nahi", "maaf kijiye", "permission nahi"])
-
+        for res in final_results["results"]:
+            if res.get("type") == "chat":
+                bot_reply = res.get("message", "")
+                break 
+    is_fail = any(w in str(bot_reply).lower() for w in ["nahi mila", "error", "samajh nahi", "maaf kijiye", "kripya", "permission nahi"])
     log_entry = {
-        "date_time":    datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "role":         user_role,
-        "user_query":   query,
-        "intent":       str(intents),
-        "bot_response": bot_reply,
-        "time_taken_sec": round(process_time, 2),
-        "status":       "Fail" if is_fail else "Success",
+        "date_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "role": user_role, "user_query": query, "intent": str(intents),
+        "bot_response": final_results["results"] if "results" in final_results else final_results, 
+        "time_taken_sec": round(process_time, 2), "status": "Fail ❌" if is_fail else "Success ✅"
     }
     try:
         with open("chat_history.json", "a", encoding="utf-8") as f:
             f.write(json.dumps(log_entry, ensure_ascii=False, default=str) + "\n")
-    except Exception as e:
-        print(f"Log error: {e}")
+    except Exception as e: print(f"❌ Logger File Exception: {e}")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# MAIN UNIFIED ENDPOINT
-# ══════════════════════════════════════════════════════════════════════════════
-@router.post("")
-def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
-    start_time = time.time()
-    raw_q  = request.query.strip()
-    low_q  = raw_q.lower()
-
-    # ── Off-topic guard ───────────────────────────────────────────────────────
-    # Skip guard if user has prior conversation history (follow-up questions
-    # like "why are they best" don't contain ERP keywords but are valid follow-ups)
-    _has_history = bool(request.history)
-    if _is_off_topic(raw_q) and not _has_history:
-        return {"results": [{"type": "chat", "message": (
-            "Bhai, main sirf Mewar ERP ke sawaalon mein help kar sakta hoon — "
-            "Suppliers, Purchase Orders, Inventory, aur Projects. "
-            "In topics par kuch poochho! 😊"
-        )}]}
-
-    # ── Role ──────────────────────────────────────────────────────────────────
-    user_role = (getattr(request, "role", "guest") or "guest").lower().strip()
-
-    # ── Fast-track: bare numeric ID → inventory lookup ────────────────────────
-    if low_q.isdigit() and len(low_q) < 8:
-        allowed = ROLE_PERMISSIONS.get(user_role, [])
-        if user_role in ("superadmin", "super admin") or "inventory" in allowed:
-            try:
-                inv = db.execute(
-                    text("SELECT id, name, classification, placement FROM inventories WHERE id = :id"),
-                    {"id": int(low_q)},
-                ).fetchone()
-                if inv:
-                    stock = float(db.execute(
-                        text("SELECT SUM(CASE WHEN LOWER(txn_type)='in' THEN quantity ELSE -quantity END) "
-                             "FROM stock_transactions WHERE inventory_id = :id"),
-                        {"id": inv.id},
-                    ).scalar() or 0)
-                    cls = str(inv.classification or "").lower()
-                    m = stock if "machining" in cls else 0
-                    sf = stock if "semi" in cls else 0
-                    f  = 0 if ("machining" in cls or "semi" in cls) else stock
-                    return {"results": [{"type": "result",
-                        "inventory": {"id": inv.id, "name": inv.name,
-                                      "category": cls.upper(), "placement": inv.placement or "N/A"},
-                        "total_stock": stock, "finish_stock": f,
-                        "semi_finish_stock": sf, "machining_stock": m}]}
-            except Exception:
-                pass
-        else:
-            return {"results": [{"type": "chat", "message":
-                f"Aapka role '{user_role.title()}' hai. Aapko Item Codes se search karne ki permission nahi hai."}]}
-
-    # ── All queries go directly to NL2SQL ────────────────────────────────────
-    intents = ["nl2sql"]
-    nl2_resp = _nl2sql_response(raw_q, db, history=request.history or [])
-    if nl2_resp:
-        process_time = time.time() - start_time
-        try:
-            log_query_pro(user_role, raw_q, intents, nl2_resp, process_time)
-        except Exception as e:
-            print(f"Logger error: {e}")
-        return nl2_resp
-
-    return {"results": [{"type": "chat", "message": (
-        "Maaf kijiye, main theek se samajh nahi paaya. "
-        "Kripya dobara poochho."
-    )}]}
-
-
-_WRITE_PATTERN = re.compile(
-    r'^\s*(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|REPLACE|MERGE|CALL|EXEC)\b',
-    re.IGNORECASE,
-)
-
-# ── NL2SQL helper ─────────────────────────────────────────────────────────────
+# ── 4. THE 100% AI-DRIVEN ENGINE ────────────────────────────────────────
 def _nl2sql_response(raw_q: str, db, history: list = None) -> dict | None:
-    """Run NL2SQL pipeline. Returns formatted response or None on failure."""
     history = history or []
     try:
-        sql = generate_sql(raw_q, history=history)
-        if _WRITE_PATTERN.match(sql):
-            print(f"[NL2SQL] BLOCKED write SQL: {sql[:120]}")
-            return {"results": [{"type": "chat", "message":
-                "Yeh action allowed nahi hai. Main sirf data read kar sakta hoon — koi bhi changes karne ki permission nahi hai."}]}
-        try:
-            result  = db.execute(text(sql))
+        # 🧠 OpenAI will handle typos natively, we just need the schema
+        schema_full = get_db_schema(db, compact=False)
+        schema_compact = get_db_schema(db, compact=True)
+        
+        # Generates SQL query using the new OpenAI powered nl2sql_engine
+        sql = generate_sql(raw_q, schema_full, schema_compact, history=history)
+        
+        if not sql or not is_safe_sql(sql):
+            return None
+            
+        try: 
+            result = db.execute(text(sql))
         except Exception as exec_err:
-            print(f"[NL2SQL] failed: {exec_err}\n[SQL: {sql}]")
-            sql = generate_sql(raw_q, previous_sql=sql, sql_error=str(exec_err), history=history)
-            if _WRITE_PATTERN.match(sql):
-                print(f"[NL2SQL] BLOCKED write SQL (retry): {sql[:120]}")
-                return {"results": [{"type": "chat", "message":
-                    "Yeh action allowed nahi hai. Main sirf data read kar sakta hoon — koi bhi changes karne ki permission nahi hai."}]}
-            print(f"[NL2SQL] retry SQL: {sql[:120]}")
-            result  = db.execute(text(sql))
-        columns      = list(result.keys())
-        rows         = [list(row) for row in result.fetchall()]
-        answer       = format_answer(raw_q, rows, columns, history=history)
-        parts        = [{"type": "chat", "message": answer}]
+            # Self-healing loop: if SQL fails, ask OpenAI to fix it
+            sql = generate_sql(raw_q, schema_full, schema_compact, previous_sql=sql, sql_error=str(exec_err), history=history)
+            if not sql or not is_safe_sql(sql): return None
+            result = db.execute(text(sql))
+            
+        columns = list(result.keys())
+        rows = [list(row) for row in result.fetchall()]
+        
+        # Let OpenAI format the final conversational response
+        answer = format_answer(raw_q, rows, columns, history=history)
+        
+        parts = [{"type": "chat", "message": answer}]
         if rows:
-            rows_as_dicts = [dict(zip(columns, row)) for row in rows]
+            rows_as_dicts = [dict(zip(columns, row)) for row in rows[:50]]
             parts.append({"type": "nl2sql_table", "rows": rows_as_dicts, "columns": columns})
         return {"results": parts}
+        
     except Exception as e:
-        print(f"[NL2SQL] failed: {e}")
+        print(f"[NL2SQL Final Execution Alert] Failed: {e}")
         return None
 
+# ══════════════════════════════════════════════════════════════════════════════
+# 🧠 MAIN UNIFIED ROUTER FUNCTION (CLEANED)
+# ══════════════════════════════════════════════════════════════════════════════
+@router.post("/")
+def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
+    start_time = time.time()
+    raw_q = request.query.strip()
+    low_q = raw_q.lower()
+    chat_history = getattr(request, "history", []) 
+    user_role = getattr(request, "role", "guest").lower().strip()
+
+    # 🛑 GUARD 1: Off-Topic Security Firewall
+    if _is_off_topic(raw_q) and not bool(chat_history):
+        return {"results": [{"type": "chat", "message": "Bhai, main sirf Mewar ERP ke bartaav par bachaav kar sakta hoon — Suppliers, Purchase Orders, Inventory, aur Projects. In topics par koi jaankari chahiye toh batao! 😊"}]}
+
+    # 🛑 GUARD 2: Fast-Track Direct ID Pipeline
+    if low_q.isdigit() and len(low_q) < 8:
+        allowed_perms = ROLE_PERMISSIONS.get(user_role, [])
+        if user_role in ["superadmin", "super admin"] or "inventory" in allowed_perms:
+            try:
+                inv = db.execute(text("SELECT id, name, classification, placement FROM inventories WHERE id = :id AND is_deleted=0"), {"id": int(low_q)}).fetchone()
+                if inv:
+                    stock_res = db.execute(text("SELECT SUM(CASE WHEN LOWER(txn_type) = 'in' THEN quantity ELSE -quantity END) FROM stock_transactions WHERE inventory_id = :id"), {"id": inv.id}).scalar()
+                    total_qty = float(stock_res or 0)
+                    cls = str(inv.classification).lower() if inv.classification else ""
+                    m, f, sf = (total_qty, 0, 0) if "machining" in cls else (0, 0, total_qty) if "semi" in cls else (0, total_qty, 0)
+                    return {"results": [{"type": "result", "inventory": {"id": inv.id, "name": inv.name, "category": cls.upper(), "placement": inv.placement or "N/A"}, "total_stock": total_qty, "finish_stock": f, "semi_finish_stock": sf, "machining_stock": m}]}
+            except: pass
+        else:
+            return {"results": [{"type": "chat", "message": f"Aapka current active status '{user_role.title()}' hai. Aapko Item Codes / Barcode ID se directly view karne ki permissions restricted hain. 🛑"}]}
+
+    # 🔒 GUARD 3: Role Security Firewall Checks (Early Check)
+    if user_role not in ["superadmin", "super admin"]:
+        allowed_perms = ROLE_PERMISSIONS.get(user_role, [])
+        if any(w in low_q for w in ["po", "order"]) and "po" not in allowed_perms: 
+            return {"results": [{"type": "chat", "message": "Aapke user profile ko Purchase Orders access karne ki authorization nahi hai. 🛑"}]}
+        if any(w in low_q for w in ["supplier", "vendor", "party"]) and "supplier" not in allowed_perms: 
+            return {"results": [{"type": "chat", "message": "Aapke user profile ko Supplier records view karne ki authorization nahi hai. 🛑"}]}
+        if any(w in low_q for w in ["project", "site"]) and "project" not in allowed_perms: 
+            return {"results": [{"type": "chat", "message": "Aapke user profile ko Projects management systems open karne ki permission nahi hai. 🛑"}]}
+
+    # 🧠 EXECUTE STEP 1: Process Query through Ollama Engine (Replaces FAISS/Manual Logic)
+    try:
+        # Ollama gets the intent and conversational reasoning directly
+        ai_data = ask_ollama(raw_q, chat_history)
+    except Exception as e:
+        print(f"❌ AI Core Exception: {str(e)}")
+        # If Intent engine fails, jump directly to NL2SQL
+        nl2_r = _nl2sql_response(raw_q, db, history=chat_history)
+        return nl2_r if nl2_r else {"results": [{"type": "chat", "message": "Bhai, mera AI brain abhi connect nahi ho pa raha. 🙏"}]}
+
+    intents = ai_data.get("intents", [])
+    reasoning = ai_data.get("reasoning", "hmm ek sec... main check karta hoon 👍")
+    target = ai_data.get("search_target", raw_q)
+    if not target: 
+        target = raw_q
+
+    # =========================================================================
+    # 🧠 NAYA AMBIGUITY & BRIDGE LOGIC
+    # =========================================================================
+    words = low_q.split()
+    # Check karo ki user ne koi specific action manga hai kya?
+    has_action = any(w in low_q for w in ["order", "po", "bill", "profile", "detail", "stock", "qty", "kitna"])
+
+    # =========================================================================
+    # 🧠 SMART AUTO-DETECT (PROJECT VS SUPPLIER) & AMBIGUITY GATE
+    # =========================================================================
+    words = low_q.split()
+    action_words = ["order", "po", "bill", "profile", "detail", "stock", "qty", "kitna", "batao", "dikhao", "balance", "ledger", "paisa", "inventory"]
+    has_action = any(w in low_q for w in action_words)
+
+    # 🛑 1. DIRECT DATABASE PRE-CHECK (Entity Resolution)
+    # Agar user ne sirf 1-3 words ka naam likha hai aur koi action word nahi hai
+    if len(words) <= 3 and not has_action:
+        
+        # Check 1: Kya ye naam Project list mein hai?
+        proj_check = db.execute(text(f"SELECT name FROM projects WHERE name LIKE '%{raw_q}%' AND is_deleted=0 LIMIT 1")).fetchone()
+        if proj_check:
+            target = proj_check[0]
+            return {
+                "results": [{
+                    "type": "chat", 
+                    "message": f"hmm.. **{target}** ek **Project** ke roop mein mil gaya hai. 🏗️ Bhai, aapko is Project ki Details dekhni hai ya Inventory? 🤔"
+                }]
+            }
+
+        # Check 2: Kya ye naam Supplier list mein hai?
+        sup_check = db.execute(text(f"SELECT supplier_name FROM suppliers WHERE supplier_name LIKE '%{raw_q}%' LIMIT 1")).fetchone()
+        if sup_check:
+            target = sup_check[0]
+            return {
+                "results": [{
+                    "type": "chat", 
+                    "message": f"hmm.. **{target}** ek **Supplier** ke roop mein mil gaye hain. 🤝 Bhai, aapko inki Profile dekhni hai ya Purchase Orders? 🤔"
+                }]
+            }
+    # 🌉 2. BRIDGE LOGIC: Agar action hai (ya button click hua hai), toh clear instruction banao
+    sql_query = raw_q
+    
+    # 🧠 CONTEXT MEMORY (Short-Term Memory Fix)
+    if len(words) <= 3 and chat_history:
+        try:
+            # Pichli chat ka aakhri message uthao
+            last_msg = chat_history[-1].get("content", "") if isinstance(chat_history[-1], dict) else getattr(chat_history[-1], "content", "")
+            # Usme se bold kiya hua naam (target) nikaalo, jaise **Mahipal Singh**
+            import re
+            match = re.search(r'\*\*(.*?)\*\*', last_msg)
+            if match:
+                past_target = match.group(1)
+                # Nayi query banao pichle context ke sath
+                if "inventory" in low_q:
+                    sql_query = f"{past_target} project ki inventory batao"
+                elif "detail" in low_q or "profile" in low_q:
+                    sql_query = f"{past_target} ki profile details batao"
+                elif "po" in low_q or "order" in low_q:
+                    sql_query = f"{past_target} ke purchase orders dikhao"
+        except Exception as e:
+            pass
+
+    # Agar memory use nahi hui, toh normal chalao
+    elif len(words) <= 5: 
+        # 🟢 NAYA ANALYTICS BYPASS: In words ko normal search mat samjho
+        if any(word in low_q for word in ["grn", "top", "highest", "sabse", "latest", "recent"]): 
+            sql_query = raw_q
+        elif "supplier_search" in intents:
+            sql_query = f"Show all profile details for supplier: '{target}'"
+        elif "po_search" in intents:
+            sql_query = f"Show purchase orders where PO number OR supplier name matches '{target}'"
+        elif "project_search" in intents:
+            sql_query = f"Show project details and budget for: '{target}'"
+        elif "search" in intents:
+            sql_query = f"Show total stock and placement for inventory item: '{target}'"
+
+    # 🧠 EXECUTE STEP 2: Process NL2SQL
+    final_response = _nl2sql_response(sql_query, db, history=chat_history)
+
+    # If SQL Engine fails to generate a response, return a graceful fallback
+    if not final_response:
+        is_english = any(w in low_q for w in ["what", "how", "show", "list", "get", "who"])
+        suggestion = "I couldn't quite resolve that query.\nTry asking about:\n1. **Purchase Orders**\n2. **Inventory Stock**\n3. **Suppliers Profile**" if is_english else "Maaf kijiye, main is query ko process nahi kar paaya.\nAap poochh sakte hain:\n1. **Purchase Orders Details**\n2. **Inventory Available Stock**\n3. **Suppliers Account Statements**"
+        final_response = {"results": [{"type": "chat", "message": suggestion}]}
+
+    # Append reasoning at the top of the chat (The natural human-like filler)
+    if final_response and "results" in final_response:
+        final_response["results"].insert(0, {"type": "chat", "message": reasoning})
+
+    process_time = time.time() - start_time
+    try: log_query_pro(user_role, raw_q, intents, final_response, process_time)
+    except Exception as e: print(f"Logging Worker Block Exception: {e}")
+    
+    return final_response
 
 # ══════════════════════════════════════════════════════════════════════════════
-# AUXILIARY ENDPOINTS — Supplier / PO / Inventory card buttons
+# BACKGROUND DAEMON CHANNELS (WHATSAPP PARSING WORKERS)
 # ══════════════════════════════════════════════════════════════════════════════
-
-@router.post("/select")
-def handle_select(payload: dict, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _t
-    name = payload.get("selected", "")
-    s = db.execute(_t("SELECT * FROM suppliers WHERE supplier_name=:n LIMIT 1"), {"n": name}).fetchone()
-    if not s:
-        return {"results": [{"type": "chat", "message": f"'{name}' nahi mila."}]}
-    inv_items = db.execute(_t(
-        "SELECT i.name, SUM(CASE WHEN LOWER(t.txn_type)='in' THEN t.quantity ELSE -t.quantity END) as stock "
-        "FROM inventories i JOIN stock_transactions t ON i.id=t.inventory_id "
-        "WHERE t.supplier_id=:sid GROUP BY i.id,i.name HAVING stock!=0"
-    ), {"sid": s.id}).fetchall()
-    return {"results": [
-        {"type": "chat", "message": f"ye raha **{s.supplier_name}** ka profile:"},
-        {"type": "result", "supplier": {
-            "id": int(s.id), "name": str(s.supplier_name or ""),
-            "code":   str(getattr(s, "supplier_code", "") or ""),
-            "mobile": str(getattr(s, "mobile", "")        or ""),
-            "city":   str(getattr(s, "city", "")          or ""),
-            "email":  str(getattr(s, "email", "")         or ""),
-            "gstin":  str(getattr(s, "gstin", "")         or ""),
-        }, "items": [{"name": r.name, "stock": float(r.stock)} for r in inv_items]},
-    ]}
-
-
-@router.get("/inventory/{inventory_id}/details")
-def inventory_details(inventory_id: int, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _t
-    inv = db.execute(_t("SELECT * FROM inventories WHERE id=:id LIMIT 1"), {"id": inventory_id}).fetchone()
-    if not inv:
-        return {"results": [{"type": "chat", "message": "Item nahi mila."}]}
-    stock = float(db.execute(_t(
-        "SELECT COALESCE(SUM(CASE WHEN LOWER(txn_type)='in' THEN quantity ELSE -quantity END),0) "
-        "FROM stock_transactions WHERE inventory_id=:id"
-    ), {"id": inventory_id}).scalar() or 0)
-    cls       = (getattr(inv, "classification", "") or "").lower()
-    finish    = 0 if ("machining" in cls or "semi" in cls) else stock
-    semi      = stock if "semi"      in cls else 0
-    machining = stock if "machining" in cls else 0
-    return {"results": [
-        {"type": "chat", "message": f"ye raha **{inv.name}** ka stock:"},
-        {"type": "result",
-         "inventory": {"id": int(inv.id), "name": str(inv.name or ""),
-                       "category": cls.upper(), "placement": str(getattr(inv, "placement", "") or ""),
-                       "unit": str(getattr(inv, "unit", "") or ""), "model": str(getattr(inv, "model", "") or ""),
-                       "grade": str(getattr(inv, "grade", "") or "")},
-         "total_stock": stock, "finish_stock": finish,
-         "semi_finish_stock": semi, "machining_stock": machining},
-    ]}
-
-
-@router.get("/inventory/{inventory_id}/po-history")
-def inventory_po_history(inventory_id: int, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _t
-    rows = db.execute(_t("""
-        SELECT po.po_number, po.po_date, s.supplier_name,
-               poi.ordered_qty, poi.unit_price, po.status
-        FROM purchase_order_items poi
-        JOIN purchase_orders po ON poi.purchase_order_id=po.id
-        JOIN suppliers s ON po.supplier_id=s.id
-        WHERE poi.inventory_id=:iid ORDER BY po.po_date DESC LIMIT 20
-    """), {"iid": inventory_id}).fetchall()
-    return {"rows": [{"po": str(r.po_number), "date": str(r.po_date)[:10],
-                      "supplier": str(r.supplier_name), "qty": float(r.ordered_qty or 0),
-                      "price": float(r.unit_price or 0), "status": str(r.status)} for r in rows]}
-
-
-@router.get("/inventory/{inventory_id}/suppliers")
-def inventory_suppliers(inventory_id: int, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _t
-    rows = db.execute(_t("""
-        SELECT DISTINCT s.id, s.supplier_name, s.mobile, s.city
-        FROM stock_transactions st JOIN suppliers s ON st.supplier_id=s.id
-        WHERE st.inventory_id=:iid
-    """), {"iid": inventory_id}).fetchall()
-    return {"rows": [{"id": int(r.id), "name": str(r.supplier_name or ""),
-                      "mobile": str(r.mobile or ""), "city": str(r.city or "")} for r in rows]}
-
-
-@router.get("/supplier/{supplier_id}/card")
-def supplier_card(supplier_id: int, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _t
-    s = db.execute(_t("SELECT * FROM suppliers WHERE id=:id LIMIT 1"), {"id": supplier_id}).fetchone()
-    if not s:
-        return {"results": [{"type": "chat", "message": "Supplier nahi mila."}]}
-    inv_items = db.execute(_t(
-        "SELECT i.name, SUM(CASE WHEN LOWER(t.txn_type)='in' THEN t.quantity ELSE -t.quantity END) AS stock "
-        "FROM inventories i JOIN stock_transactions t ON i.id=t.inventory_id "
-        "WHERE t.supplier_id=:sid GROUP BY i.id,i.name HAVING stock!=0"
-    ), {"sid": supplier_id}).fetchall()
-    return {"results": [
-        {"type": "chat", "message": f"ye raha **{s.supplier_name}** ka profile:"},
-        {"type": "result", "supplier": {
-            "id": int(s.id), "name": str(s.supplier_name or ""),
-            "code":   str(getattr(s, "supplier_code", "") or ""),
-            "mobile": str(getattr(s, "mobile", "")        or ""),
-            "city":   str(getattr(s, "city", "")          or ""),
-            "email":  str(getattr(s, "email", "")         or ""),
-            "gstin":  str(getattr(s, "gstin", "")         or ""),
-        }, "items": [{"name": r.name, "stock": float(r.stock)} for r in inv_items]},
-    ]}
-
-
-@router.get("/supplier/{supplier_id}/pos")
-def supplier_pos(supplier_id: int, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _t
-    rows = db.execute(_t(
-        "SELECT p.id, p.po_number, p.po_date, p.total_amount, p.balance_amount, p.status "
-        "FROM purchase_orders p WHERE p.supplier_id=:sid ORDER BY p.po_date DESC LIMIT 50"
-    ), {"sid": supplier_id}).fetchall()
-    return {"rows": [{"type": "po", "id": int(r.id), "po_no": str(r.po_number),
-                      "date": str(r.po_date), "total": float(r.total_amount or 0),
-                      "balance": float(r.balance_amount or 0), "status": str(r.status)} for r in rows]}
-
-
-@router.get("/supplier/{supplier_id}/balance")
-def supplier_balance(supplier_id: int, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _t
-    r = db.execute(_t(
-        "SELECT COALESCE(SUM(balance_amount),0) as bal, COUNT(id) as cnt "
-        "FROM purchase_orders WHERE supplier_id=:sid AND LOWER(status)!='completed'"
-    ), {"sid": supplier_id}).fetchone()
-    s = db.execute(_t("SELECT supplier_name FROM suppliers WHERE id=:id"), {"sid": supplier_id}).fetchone()
-    name = s.supplier_name if s else "Supplier"
-    return {"balance": float(r.bal or 0), "order_count": int(r.cnt or 0),
-            "message": f"**{name}** ka total pending balance: **₹{float(r.bal or 0):,.2f}** ({r.cnt} orders)"}
-
-
-@router.get("/supplier/{supplier_id}/items")
-def supplier_items(supplier_id: int, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _t
-    rows = db.execute(_t("""
-        SELECT i.id, i.name,
-               SUM(CASE WHEN LOWER(t.txn_type)='in' THEN t.quantity ELSE -t.quantity END) AS stock
-        FROM inventories i JOIN stock_transactions t ON i.id=t.inventory_id
-        WHERE t.supplier_id=:sid GROUP BY i.id,i.name HAVING stock>0
-    """), {"sid": supplier_id}).fetchall()
-    return {"rows": [{"id": int(r.id), "name": str(r.name), "stock": float(r.stock)} for r in rows]}
-
-
-@router.get("/supplier/{supplier_id}/payments")
-def supplier_payments(supplier_id: int, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _t
-    rows = db.execute(_t("""
-        SELECT pt.pay_amount, pt.transaction_date, po.po_number
-        FROM po_transactions pt JOIN purchase_orders po ON pt.po_id=po.id
-        WHERE po.supplier_id=:sid ORDER BY pt.transaction_date DESC LIMIT 30
-    """), {"sid": supplier_id}).fetchall()
-    total = sum(float(r.pay_amount) for r in rows)
-    return {"total_paid": total,
-            "rows": [{"amount": float(r.pay_amount), "date": str(r.transaction_date)[:10],
-                      "po": str(r.po_number)} for r in rows]}
-
-
-@router.get("/po/{po_id}/items")
-def po_items(po_id: int, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _t
-    rows = db.execute(_t("""
-        SELECT i.name, i.unit, poi.hsn, poi.ordered_qty, poi.received_qty,
-               poi.unit_price, poi.discount, poi.tax_percent, poi.tax_amount, poi.line_total
-        FROM purchase_order_items poi JOIN inventories i ON poi.inventory_id=i.id
-        WHERE poi.purchase_order_id=:pid ORDER BY poi.id
-    """), {"pid": po_id}).fetchall()
-    return {"rows": [{"name": str(r.name), "unit": str(r.unit or ""), "hsn": str(r.hsn or ""),
-                      "ordered": float(r.ordered_qty or 0), "received": float(r.received_qty or 0),
-                      "unit_price": float(r.unit_price or 0), "discount": float(r.discount or 0),
-                      "tax_percent": float(r.tax_percent or 0), "tax_amount": float(r.tax_amount or 0),
-                      "line_total": float(r.line_total or 0)} for r in rows]}
-
-
-@router.get("/po/{po_id}/payments")
-def po_payments(po_id: int, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _t
-    rows  = db.execute(_t("SELECT pay_amount, transaction_date FROM po_transactions WHERE po_id=:pid ORDER BY transaction_date DESC"), {"pid": po_id}).fetchall()
-    total = sum(float(r.pay_amount) for r in rows)
-    return {"total_paid": total, "rows": [{"amount": float(r.pay_amount), "date": str(r.transaction_date)[:10]} for r in rows]}
-
-
-@router.get("/po/{po_id}/status-log")
-def po_status_log(po_id: int, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _t
-    rows = db.execute(_t("SELECT status, changed_at, remarks FROM po_status_logs WHERE purchase_order_id=:pid ORDER BY changed_at DESC"), {"pid": po_id}).fetchall()
-    return {"rows": [{"status": str(r.status or ""), "date": str(r.changed_at)[:16], "remarks": str(r.remarks or "")} for r in rows]}
-
-
-@router.get("/po/{po_id}/supplier")
-def po_supplier(po_id: int, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _t
-    row = db.execute(_t("SELECT s.* FROM purchase_orders p JOIN suppliers s ON p.supplier_id=s.id WHERE p.id=:id LIMIT 1"), {"id": po_id}).fetchone()
-    if not row:
-        return {"error": "Supplier not found"}
-    return {"supplier": {"id": int(row.id), "name": str(row.supplier_name or ""),
-                         "code": str(getattr(row,"supplier_code","N/A") or "N/A"),
-                         "mobile": str(getattr(row,"mobile","N/A") or "N/A"),
-                         "city":   str(getattr(row,"city","N/A")   or "N/A"),
-                         "email":  str(getattr(row,"email","N/A")  or "N/A"),
-                         "gstin":  str(getattr(row,"gstin","N/A")  or "N/A")}}
-
-
-@router.get("/po/{po_id}/card")
-def po_card(po_id: int, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _t
-    row = db.execute(_t("SELECT p.*, s.supplier_name FROM purchase_orders p LEFT JOIN suppliers s ON p.supplier_id=s.id WHERE p.id=:id LIMIT 1"), {"id": po_id}).fetchone()
-    if not row:
-        return {"results": [{"type": "chat", "message": "PO nahi mila."}]}
-    return {"results": [
-        {"type": "chat", "message": f"ye raha **{row.po_number}** ka detail:"},
-        {"type": "po", "id": int(row.id), "po_no": str(row.po_number), "supplier": str(row.supplier_name or ""),
-         "date": str(row.po_date), "total": float(row.total_amount or 0),
-         "advance": float(row.advance_amount or 0), "balance": float(row.balance_amount or 0),
-         "status": str(row.status).capitalize()},
-    ]}
-
-
-# ── Quick search ──────────────────────────────────────────────────────────────
-
-@router.get("/quick-search/supplier")
-def quick_search_supplier(q: str = "", limit: int = 60, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _t
-    if not q.strip():
-        rows = db.execute(_t("SELECT id, supplier_name, city, mobile FROM suppliers ORDER BY id DESC LIMIT :l"), {"l": limit}).fetchall()
-    else:
-        words = q.strip().lower().split()
-        cond  = " AND ".join(f"(LOWER(supplier_name) LIKE :w{i} OR LOWER(COALESCE(city,'')) LIKE :w{i} OR COALESCE(mobile,'') LIKE :w{i})" for i in range(len(words)))
-        params = {f"w{i}": f"%{w}%" for i, w in enumerate(words)}
-        params["l"] = limit
-        rows = db.execute(_t(f"SELECT id, supplier_name, city, mobile FROM suppliers WHERE {cond} ORDER BY supplier_name LIMIT :l"), params).fetchall()
-    return {"rows": [{"id": int(r.id), "name": str(r.supplier_name or ""), "city": str(r.city or ""), "mobile": str(r.mobile or "")} for r in rows]}
-
-
-@router.get("/quick-search/po")
-def quick_search_po(q: str = "", limit: int = 60, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _t
-    base = "SELECT p.id, p.po_number, p.po_date, p.total_amount, p.status, s.supplier_name FROM purchase_orders p LEFT JOIN suppliers s ON p.supplier_id=s.id "
-    if not q.strip():
-        rows = db.execute(_t(base + "ORDER BY p.id DESC LIMIT :l"), {"l": limit}).fetchall()
-    else:
-        words  = q.strip().lower().split()
-        cond   = " AND ".join(f"(LOWER(p.po_number) LIKE :w{i} OR LOWER(COALESCE(s.supplier_name,'')) LIKE :w{i} OR LOWER(COALESCE(p.status,'')) LIKE :w{i})" for i in range(len(words)))
-        params = {f"w{i}": f"%{w}%" for i, w in enumerate(words)}
-        params["l"] = limit
-        rows = db.execute(_t(base + f"WHERE {cond} ORDER BY p.po_date DESC LIMIT :l"), params).fetchall()
-    return {"rows": [{"id": int(r.id), "po_number": str(r.po_number or ""), "date": str(r.po_date or ""),
-                      "total": float(r.total_amount or 0), "status": str(r.status or ""),
-                      "supplier": str(r.supplier_name or "")} for r in rows]}
-
-
-@router.get("/quick-search/inventory")
-def quick_search_inventory(q: str = "", limit: int = 60, db: Session = Depends(get_db)):
-    from sqlalchemy import text as _t
-    base = ("SELECT i.id, i.name, i.unit, COALESCE(SUM(CASE WHEN LOWER(st.txn_type)='in' THEN st.quantity ELSE -st.quantity END),0) AS stock "
-            "FROM inventories i LEFT JOIN stock_transactions st ON st.inventory_id=i.id WHERE i.is_deleted=0 ")
-    if not q.strip():
-        rows = db.execute(_t(base + "GROUP BY i.id,i.name,i.unit ORDER BY i.id DESC LIMIT :l"), {"l": limit}).fetchall()
-    else:
-        words  = q.strip().lower().split()
-        cond   = " AND ".join(f"LOWER(i.name) LIKE :w{i}" for i in range(len(words)))
-        params = {f"w{i}": f"%{w}%" for i, w in enumerate(words)}
-        params["l"] = limit
-        rows = db.execute(_t(base + f"AND {cond} GROUP BY i.id,i.name,i.unit ORDER BY i.name LIMIT :l"), params).fetchall()
-    return {"rows": [{"id": int(r.id), "name": str(r.name or ""), "unit": str(r.unit or ""), "stock": float(r.stock or 0)} for r in rows]}
-
-
-# ── Feedback & Logs ───────────────────────────────────────────────────────────
-
-@router.post("/feedback")
-def chatbot_feedback(payload: dict, db: Session = Depends(get_db)):
+async def process_chat_message(user_text: str) -> str:
+    db = SessionLocal()
     try:
-        with open("chat_history.json", "a", encoding="utf-8") as f:
-            f.write(json.dumps({
-                "type":       "feedback",
-                "request_id": payload.get("request_id"),
-                "query":      payload.get("query"),
-                "rating":     payload.get("rating"),
-                "summary":    payload.get("summary"),
-                "timestamp":  datetime.datetime.now().isoformat(),
-            }, ensure_ascii=False) + "\n")
-        return {"ok": True}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
-@router.get("/logs")
-def view_logs():
-    log_file = "chat_history.json"
-    if not os.path.exists(log_file):
-        return {"message": "Abhi tak koi chat nahi hui."}
-    try:
-        with open(log_file, "r", encoding="utf-8") as f:
-            logs = [json.loads(line) for line in f if line.strip()]
-        return {"total_chats": len(logs), "latest_logs": logs[::-1]}
-    except Exception as e:
-        return {"error": str(e)}
-
-
-@router.delete("/logs/clear")
-def clear_logs(secret_key: str = "mewar123"):
-    if secret_key != "mewar@12345":
-        return {"error": "Galat password. Permission nahi hai."}
-    try:
-        open("chat_history.json", "w", encoding="utf-8").close()
-        return {"success": True, "message": "Logs clear ho gaye."}
-    except Exception as e:
-        return {"error": str(e)}
-
-
-# ── Morning briefing (called by APScheduler in main.py) ──────────────────────
+        request_data = ChatRequest(query=user_text, role="superadmin")
+        response_dict = chatbot(request_data, db)
+        final_whatsapp_text = ""
+        if "results" in response_dict:
+            for res in response_dict["results"]:
+                res_type = res.get("type")
+                if res_type == "chat": final_whatsapp_text += res.get("message", "") + "\n\n"
+                elif res_type == "nl2sql_table":
+                    # Simple text formatting for tables
+                    for row in res.get("rows", []):
+                        final_whatsapp_text += " | ".join(str(v) for v in row.values()) + "\n"
+                    final_whatsapp_text += "\n"
+        
+        if not final_whatsapp_text.strip(): final_whatsapp_text = "Maaf karna bhai, mujhe iska valid response nahi mil paya database records mein. 😅"
+        return final_whatsapp_text.strip()
+    except Exception as e: 
+        print(f"❌ WhatsApp Parsing Error: {e}")
+        return "Bhai, backend pipeline process karne mein technical error hai. Try again later! 🙏"
+    finally: db.close()
 
 def generate_morning_briefing():
     db = SessionLocal()
     try:
-        po_res      = db.execute(text("SELECT COUNT(id), SUM(balance_amount) FROM purchase_orders WHERE balance_amount>0 AND LOWER(status)!='completed'")).fetchone()
-        proj_res    = db.execute(text("SELECT COUNT(id) FROM projects WHERE is_deleted=0 AND (end_date < CURRENT_DATE OR deadline < CURRENT_DATE) AND LOWER(status)!='completed'")).fetchone()
-        pending_pos = po_res[0] or 0
-        pending_amt = po_res[1] or 0.0
-        overdue     = proj_res[0] or 0
-        msg = (f"Good Morning! Mewar ERP Daily Briefing:\n"
-               f"Pending POs: {pending_pos} (Due: Rs {float(pending_amt):,.2f})\n" +
-               (f"ALERT: {overdue} projects are overdue!\n" if overdue > 0 else "All projects on time.\n"))
-        print(msg)
-    except Exception as e:
-        print(f"Morning briefing error: {e}")
-    finally:
-        db.close()
-
-
-
-
-##ggfdgdfgd
+        po_res = db.execute(text("SELECT COUNT(id), SUM(balance_amount) FROM purchase_orders WHERE balance_amount>0 AND LOWER(status)!='completed'")).fetchone()
+        proj_res = db.execute(text("SELECT COUNT(id) FROM projects WHERE is_deleted=0 AND (end_date < CURRENT_DATE OR deadline < CURRENT_DATE) AND LOWER(status)!='completed'")).fetchone()
+        pending_pos = po_res[0] or 0; pending_amt = po_res[1] or 0.0; overdue = proj_res[0] or 0
+        msg = f"🌅 *Good Morning! Here is your Mewar ERP Daily Briefing:* 🌅\n\n📦 *Pending Purchase Orders:* {pending_pos} Orders (Total Due: ₹{float(pending_amt):,.2f})\n"
+        if overdue > 0: msg += f"🚨 *Alert:* {overdue} Projects apne deadline se late chal rahe hain!\n"
+        else: msg += f"✅ *Projects:* Sabhi active projects proper timeline standard par chal rahe hain.\n"
+        print("\n" + "⭐"*30 + "\n🤖 AUTO-TRIGGERED DAILY AUTOMATION DAEMON:\n" + msg + "⭐"*30 + "\n")
+    except Exception as e: print(f"❌ Automated Cron Worker Briefing Fault: {e}")
+    finally: db.close()

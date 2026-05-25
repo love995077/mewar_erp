@@ -680,6 +680,7 @@
 ##--------------------------------------------------------------------------------------------------------------------------------
 import os
 import re
+from openai import OpenAI
 import time
 import datetime
 import requests
@@ -688,34 +689,9 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 # ── Keys ─────────────────────────────────────────────────────────────────────
-# All SambaNova keys — engine rotates on 429
-SAMBANOVA_KEYS = list(filter(None, [
-    os.getenv("SAMBANOVA_API_KEY", "").strip(),
-    "c242c5a6-80a3-4573-a319-0a06ccc310c9",
-    "42e08bfb-aba1-47ff-8507-fce5c16d113f",
-    "294d38c1-191c-4d66-9a8c-4bf020947eb7",
-    "66268ac9-7dc2-4580-b688-76aebe683ba9",
-    "5c299802-1c45-4ddb-ae39-566f0a017553",
-    "ec3ff8ca-4239-4bcd-8c03-1d2a10830778",
-]))
-SAMBANOVA_KEY = SAMBANOVA_KEYS[0] if SAMBANOVA_KEYS else ""
-GEMINI_KEY    = os.getenv("GEMINI_API_KEY", "").strip()
-# Both Gemini keys for rotation
-GEMINI_KEYS = list(filter(None, [
-    os.getenv("GEMINI_API_KEY", "").strip(),
-    "AIzaSyBne10lUKskfQO3TcHwISLwYyVr8yOUoec",
-]))
-GROQ_KEYS     = list(filter(None, [
-    os.getenv("GROQ_API_KEY_1"),
-    os.getenv("GROQ_API_KEY_2"),
-]))
-
-SAMBANOVA_MODELS = [
-    "DeepSeek-V3.1",                 # strongest coding/SQL model on SambaNova
-    "Meta-Llama-3.3-70B-Instruct",   # fallback
-]
-GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"]
-GROQ_MODELS   = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+client = OpenAI(api_key=OPENAI_API_KEY)
+MODEL_NAME = "gpt-4o-mini"
 
 # ── Schema cache (used by get_db_schema / invalidate_schema_cache) ───────────
 _schema_full    : str = ""
@@ -853,30 +829,30 @@ CRITICAL RULES (never violate):
 - stock_transactions `txn_type` values are exactly: 'In' and 'Out' (capital first letter)
 - inventories has NO `current_stock` column — compute it: COALESCE(opening_quantity,0) + COALESCE(net_txn,0)
 - inventories has NO `quantity` column — use `opening_quantity` or compute from stock_transactions
+- DUAL EXTREMES (MAX & MIN): If the user asks for BOTH highest/biggest AND lowest/smallest metrics, you MUST use UNION ALL. CRITICAL SQL SYNTAX: In MariaDB/MySQL, when using ORDER BY and LIMIT inside a UNION ALL, you MUST wrap each SELECT statement in parentheses. Example: (SELECT id, po_number, total_amount FROM purchase_orders ORDER BY total_amount DESC LIMIT 1) UNION ALL (SELECT id, po_number, total_amount FROM purchase_orders ORDER BY total_amount ASC LIMIT 1).
+- SPELLING OVERRIDES: For item thickness, ALWAYS use the exact column name 'thikness' (without 'c'). Never autocorrect it to 'thickness' in the query, otherwise it will crash. Other dimensions are 'height', 'width', 'length', 'outer_diameter', 'composition', 'grade'.
 - purchase_orders `status` values: 'Draft', 'Approved', 'Completed' (capital first letter)
 - When joining purchase_orders with grns: purchase_orders.id = grns.purchase_order_id
 - projects `status` values are exactly: 'new' and 'in_progress' (lowercase with underscore) — NEVER use 'In Progress', 'inprogress', 'active', or any other variant
 - "in progress projects", "jo projects chal rahe hain", "current projects" means WHERE status='in_progress' — apply this filter strictly, do NOT return all projects
 - projects table date columns: `start_date` = project start, `end_date` = project end/deadline, `deadline` column is usually NULL — ALWAYS use `end_date` when asked for deadline, due date, end date, or "kab tak chalega"
-- PROJECT NAME SEARCH: when user asks about a specific company/client name (e.g. "RBL Minerals ki detail", "RBL Minerals ki inventory"), ALWAYS search in `projects` table first (projects.name LIKE '%term%'), NOT in suppliers. A client/customer is a project, not a supplier. Only search suppliers when user explicitly says "supplier" or "vendor".
-- PROJECT INVENTORY ITEMS: a project's inventory comes from TWO sources — always include BOTH:
-  (1) BOM chain: project_products -> product_items -> inventories (pp.project_id=p.id, pit.product_id=pp.product_id, i.id=pit.inventory_id)
-  (2) Direct: project_item -> inventories (pi.project_id=p.id, i.id=pi.inventory_id)
-  When asked "X project ki inventory batao", use:
+- ENTITY RESOLUTION (PROJECTS vs SUPPLIERS): They are completely separate. 
+  1. If the user asks about timelines, deadlines, budgets, or inventory required/consumed at a site -> SEARCH IN `projects` table (projects.name LIKE '%term%'). 
+  2. If the user asks about POs, orders, pending balance, payments, or contact details (mobile/email) -> SEARCH IN `suppliers` table (supplier_name LIKE '%term%').
+  Do NOT mix them. Use the context of the question (e.g., 'balance' means supplier, 'deadline/site' means project) to decide which table to search if the user just provides a name.
+- PROJECT INVENTORY ITEMS: When asked for a project's inventory (e.g., "X project ki inventory batao"), you MUST NEVER output CANNOT_ANSWER. Always use this EXACT template. For the LIKE clause, extract the core parts of the user's word to bypass typos (e.g., for "mahipal singh", use `p.name LIKE '%mahip%' AND p.name LIKE '%sing%'`):
   SELECT i.id, i.name, i.model, SUM(pp.quantity * pit.quantity) AS required_qty, 'BOM' AS source
   FROM projects p JOIN project_products pp ON pp.project_id=p.id AND pp.is_deleted=0
   JOIN product_items pit ON pit.product_id=pp.product_id AND pit.is_deleted=0
   JOIN inventories i ON i.id=pit.inventory_id
-  WHERE p.name LIKE '%term%'
-  GROUP BY i.id, i.name, i.model
+  WHERE (p.name LIKE '%term1%' AND p.name LIKE '%term2%')
+  GROUP BY i.id, i.name, i.model, source
   UNION ALL
   SELECT i.id, i.name, i.model, SUM(pi.quantity) AS required_qty, 'Direct' AS source
   FROM projects p JOIN project_item pi ON pi.project_id=p.id
   JOIN inventories i ON i.id=pi.inventory_id
-  WHERE p.name LIKE '%term%'
-  GROUP BY i.id, i.name, i.model
-  CRITICAL: For project name search, use the FULL company name in a single LIKE '%full name%' — NEVER split into individual words (e.g. '%RBL%' OR '%Minerals%') as that matches unrelated projects. Do NOT use SOUNDS LIKE for project names.
-  CRITICAL: Always GROUP BY i.id, i.name, i.model in the BOM branch to avoid duplicate rows when multiple products in the same project share the same inventory item.
+  WHERE (p.name LIKE '%term1%' AND p.name LIKE '%term2%')
+  GROUP BY i.id, i.name, i.model, source
 - Hindi/Hinglish list words: "sarii", "saari", "saare", "sari", "sabhi", "sab", "sare" all mean "all" — fetch ALL rows with NO date or status filter unless the user also specifies one
 - Date day filter: "13 date wali", "13 tarikh wali", "only 13 date" means DAY(transaction_date) = 13 — use DAY() function
 - "X month wali" or "X mahine wali" means MONTH(transaction_date) = X
@@ -917,31 +893,80 @@ CRITICAL RULES (never violate):
   ORDER BY i.name, i.model
   NEVER select `model` as a stock value. `model` is a text descriptor column on inventories. `current_stock` must always be computed from opening_quantity + stock_transactions SUM.
 - Pronouns "iski", "iska", "is item ki", "is cheez ki" in a follow-up refer to the item mentioned in the previous turn — resolve them from conversation context.
-- REQUIRED VS AVAILABLE STOCK ("required vs available", "project ke liye kitna chahiye vs kitna hai", "shortage in active projects"):
-  Business logic (matches the PHP requiredVsAvailable report):
-  - Required = BOM (project_products->product_items) + direct project_item quantities for active projects
+- REQUIRED VS AVAILABLE STOCK ("required vs available", "shortage", "sabse badi shortage", "project ke liye kitna chahiye vs kitna hai"):
+  Business logic (exact match with PHP requiredVsAvailable):
   - Active projects = status NOT IN ('completed','hold') AND is_deleted=0
-  - Machining = Out transactions with ref_type='Machining' (items sent for machining — consumed)
-  - Finish = In transactions with ref_type='Finish' (items finished/processed — available)
-  - Semi Finish = In transactions with ref_type='Semi Finish' (partially finished — available)
-  - Available Total = Finish qty + Semi Finish qty (items in the production pipeline ready to use)
-  - Short/Extra = Available Total - Required (negative = short, positive = extra)
-  Use this exact SQL pattern:
-  SELECT i.id, i.name, i.model,
+  - Required = BOM (pp.quantity * pit.quantity) + Direct (pi.quantity) for active projects.
+  - Transactions grouped by inventory:
+    * t_in = In (excluding ref_type 'Finish')
+    * t_out = Out (excluding ref_type 'Machining')
+    * t_finish = In with ref_type 'Finish'
+    * t_mc = Out with ref_type 'Machining'
+  - Available (Total) = t_in - t_out
+  - Difference (Short/Extra) = Available - Required
+  ALWAYS use this exact SQL pattern:
+  SELECT i.id, i.name, i.model, i.classification,
     COALESCE(bom.req,0)+COALESCE(direct.req,0) AS required_qty,
-    COALESCE(mach.qty,0) AS machining,
-    COALESCE(fin.qty,0) AS finish,
-    COALESCE(semifin.qty,0) AS semi_finish,
-    COALESCE(fin.qty,0)+COALESCE(semifin.qty,0) AS available_total,
-    (COALESCE(fin.qty,0)+COALESCE(semifin.qty,0)) - (COALESCE(bom.req,0)+COALESCE(direct.req,0)) AS short_extra
+    COALESCE(t_in,0) - COALESCE(t_out,0) AS available_qty,
+    CASE WHEN i.classification IN ('FINISH', '', 'null') OR i.classification IS NULL THEN 0 ELSE COALESCE(t_mc,0) - COALESCE(t_finish,0) END AS machining,
+    CASE WHEN i.classification IN ('FINISH', '', 'null') OR i.classification IS NULL THEN COALESCE(t_in,0) - COALESCE(t_out,0) ELSE COALESCE(t_finish,0) - COALESCE(t_out,0) END AS finish,
+    CASE WHEN i.classification IN ('FINISH', '', 'null') OR i.classification IS NULL THEN 0 ELSE COALESCE(t_in,0) - COALESCE(t_mc,0) END AS semi_finish,
+    (COALESCE(t_in,0) - COALESCE(t_out,0)) - (COALESCE(bom.req,0)+COALESCE(direct.req,0)) AS short_extra
   FROM inventories i
   LEFT JOIN (SELECT pit.inventory_id, SUM(pp.quantity*pit.quantity) AS req FROM projects p JOIN project_products pp ON pp.project_id=p.id AND pp.is_deleted=0 JOIN product_items pit ON pit.product_id=pp.product_id AND pit.is_deleted=0 WHERE p.status NOT IN ('completed','hold') AND p.is_deleted=0 GROUP BY pit.inventory_id) bom ON bom.inventory_id=i.id
   LEFT JOIN (SELECT pi.inventory_id, SUM(pi.quantity) AS req FROM projects p JOIN project_item pi ON pi.project_id=p.id WHERE p.status NOT IN ('completed','hold') AND p.is_deleted=0 GROUP BY pi.inventory_id) direct ON direct.inventory_id=i.id
-  LEFT JOIN (SELECT inventory_id, SUM(quantity) AS qty FROM stock_transactions WHERE txn_type='Out' AND ref_type='Machining' GROUP BY inventory_id) mach ON mach.inventory_id=i.id
-  LEFT JOIN (SELECT inventory_id, SUM(quantity) AS qty FROM stock_transactions WHERE txn_type='In' AND ref_type='Finish' GROUP BY inventory_id) fin ON fin.inventory_id=i.id
-  LEFT JOIN (SELECT inventory_id, SUM(quantity) AS qty FROM stock_transactions WHERE txn_type='In' AND ref_type='Semi Finish' GROUP BY inventory_id) semifin ON semifin.inventory_id=i.id
-  WHERE bom.req IS NOT NULL OR direct.req IS NOT NULL
-  ORDER BY short_extra ASC
+  LEFT JOIN (SELECT inventory_id, SUM(CASE WHEN txn_type='In' AND COALESCE(ref_type,'')!='Finish' THEN quantity ELSE 0 END) AS t_in, SUM(CASE WHEN txn_type='Out' AND COALESCE(ref_type,'')!='Machining' THEN quantity ELSE 0 END) AS t_out, SUM(CASE WHEN txn_type='In' AND ref_type='Finish' THEN quantity ELSE 0 END) AS t_finish, SUM(CASE WHEN txn_type='Out' AND ref_type='Machining' THEN quantity ELSE 0 END) AS t_mc FROM stock_transactions GROUP BY inventory_id) st ON st.inventory_id=i.id
+  WHERE bom.req IS NOT NULL OR direct.req IS NOT NULLWHERE (COALESCE(bom.req,0)+COALESCE(direct.req,0)) > 0 OR (COALESCE(t_in,0) - COALESCE(t_out,0)) > 0  ORDER BY short_extra ASC
+- GROUP BY STRICT MODE: If you use a GROUP BY clause, EVERY column in the SELECT list that is not inside an aggregate function (like SUM, COUNT, MAX) MUST be included in the GROUP BY clause. Do not leave trailing non-aggregated columns.
+- SOUNDS LIKE SYNTAX: NEVER use wildcard characters ('%') with SOUNDS LIKE. Correct: `col SOUNDS LIKE 'term'`. Wrong: `col SOUNDS LIKE '%term%'`.
+- DATE COMPARISONS: For queries asking about "today", "aaj", or "current", ALWAYS use the MySQL CURDATE() or NOW() functions instead of hardcoding dates.
+- NO DATA CREATION/FORMS: You are a READ-ONLY data retrieval assistant. NEVER say you are "creating", "drafting", or "preparing a form" for a request slip or PO. Always fetch EXISTING records using SELECT queries.
+- REQUEST SLIPS (RS) BY PROJECT: If the user asks for "request slips", "RS", or "slips" for a specific project (e.g., "sonampur cement ki request slip"), you MUST join with the projects table.
+  Pattern: SELECT rs.requisition_slip_no, p.name AS project, rs.transaction_date, rs.status 
+  FROM requisition_slips rs JOIN projects p ON rs.project_id = p.id 
+  WHERE p.name LIKE '%term%'.
+  (CRITICAL: Intelligently fix minor typos in the LIKE clause. e.g., if user writes 'sonampur', search for '%sonapur%').
+  - REQUEST SLIPS (RS) BY PROJECT: If the user asks for "request slips", "RS", or "slips" for a specific project (e.g., "sonampur cement ki request slip"), you MUST join with the projects table.
+  Pattern: SELECT rs.requisition_slip_no, p.name AS project, rs.transaction_date, rs.status 
+  FROM requisition_slips rs JOIN projects p ON rs.project_id = p.id 
+  WHERE p.name LIKE '%term%'.
+  (CRITICAL: Intelligently fix minor typos in the LIKE clause. e.g., if user writes 'sonampur', search for '%sonapur%').
+
+- GRN LIST DASHBOARD: If the user asks for "grn list", "saare grn", or "grn dikhao", fetch the exact dashboard view using this SQL structure:
+  SELECT g.grn_number, po.po_number, s.supplier_name, g.grn_date, g.invoice_no, SUM(gi.accepted_qty) AS total_accepted
+  FROM grns g
+  LEFT JOIN purchase_orders po ON g.purchase_order_id = po.id
+  LEFT JOIN suppliers s ON po.supplier_id = s.id
+  LEFT JOIN grn_items gi ON gi.grn_id = g.id
+  GROUP BY g.id, g.grn_number, po.po_number, s.supplier_name, g.grn_date, g.invoice_no
+  ORDER BY g.grn_date DESC
+  - REQUEST SLIP (RS) DASHBOARD: If the user asks for "saari request slips", "pending RS", or filters by date/project/status/code, ALWAYS use this dashboard structure:
+  SELECT rs.requisition_slip_no AS rs_code, p.name AS project_name, rs.transaction_date AS created_date, rs.status
+  FROM requisition_slips rs
+  LEFT JOIN projects p ON rs.project_id = p.id
+  WHERE 1=1
+  -- (CRITICAL AI FILTERING RULES: Apply these dynamically based on user query)
+  -- 1. Date Filters ("14 March ki RS", "April ki slips"): AND rs.transaction_date >= '...' AND rs.transaction_date <= '...'
+  -- 2. Status ("pending", "approved", "rejected"): AND LOWER(rs.status) = 'pending'
+  -- 3. RS Code ("RS 00012", "slip number 10"): AND rs.requisition_slip_no LIKE '%00012%'
+  -- 4. Project ("Sonapur cement ki RS"): AND p.name LIKE '%sonapur%'
+  ORDER BY rs.transaction_date DESC
+  - PURCHASE REQUEST (PR) DASHBOARD: If the user asks for "saari purchase requests", "PR list", "pending PR", or filters by priority/status/date, ALWAYS use this dashboard structure:
+  SELECT pr.pr_number, pr.request_date, pr.requested_by, pr.total_qty, pr.priority, pr.status
+  FROM purchase_requests pr
+  WHERE 1=1
+  -- (CRITICAL AI FILTERING RULES for PRs: Apply dynamically based on user query)
+  -- 1. Date Filters ("16 April ki PR", "March ki requests"): AND pr.request_date >= '...' AND pr.request_date <= '...'
+  -- 2. Status ("ordered", "submitted", "approved"): AND LOWER(pr.status) = 'ordered'
+  -- 3. Priority ("High priority wali PR dikhao"): AND LOWER(pr.priority) = 'high'
+  -- 4. PR Number ("PR-104 ki details"): AND pr.pr_number LIKE '%104%'
+  ORDER BY pr.request_date DESC
+  - TOP N QUERIES (Ranking): If the user asks for "top 5", "highest", "biggest", or "sabse bade" (e.g., "top 5 po dikhao"), NEVER use LIKE '%top%'. You MUST use `ORDER BY` and `LIMIT`.
+  Pattern for POs: SELECT po.po_number, s.supplier_name, po.po_date, po.total_amount, po.status FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id ORDER BY po.total_amount DESC LIMIT 5
+  - CRITICAL RULE FOR CHATBOT RESPONSE TONE & LOGIC:
+  1. If the SQL query returns an empty table or states required_qty is 0 for an item, DO NOT say "Stock is insufficient". Instead, professionally state: "Currently, this item is not required for any active projects."
+  2. Maintain a strict, professional corporate tone. NEVER use casual filler words like "hmm", "ek sec", or emojis like 🧐. Use phrases like "Scanning inventory and project requirements..."
+  3. Only state there is a shortage if the data explicitly shows required_qty > available_qty.
 """
 
 _FIX_PROMPT = """\
@@ -970,123 +995,21 @@ Examples: "Total 6 suppliers hain.", "Arawali Minerals ne sabse zyada orders diy
 
 # ── Provider calls ────────────────────────────────────────────────────────────
 
-def _call_sambanova(system: str, user: str) -> str:
-    if not SAMBANOVA_KEYS:
-        raise RuntimeError("No SAMBANOVA_API_KEY")
-    from openai import OpenAI
-    last_err = None
-    for api_key in SAMBANOVA_KEYS:
-        for model in SAMBANOVA_MODELS:
-            try:
-                client = OpenAI(
-                    base_url="https://api.sambanova.ai/v1",
-                    api_key=api_key,
-                    timeout=30.0,
-                )
-                resp = client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": system},
-                        {"role": "user",   "content": user},
-                    ],
-                    temperature=0.0,
-                    max_tokens=1500,
-                )
-                return resp.choices[0].message.content.strip()
-            except Exception as e:
-                err_str = str(e)
-                last_err = e
-                if "429" in err_str or "rate limit" in err_str.lower():
-                    print(f"[NL2SQL] SambaNova key ...{api_key[-8:]} 429 — trying next key")
-                    break  # try next key immediately on rate limit
-    raise RuntimeError(f"SambaNova failed: {last_err}")
-
-
-def _call_gemini(system: str, user: str, retries: int = 1) -> str:
-    if not GEMINI_KEYS:
-        raise RuntimeError("No GEMINI_API_KEY")
-    last_err = None
-    for api_key in GEMINI_KEYS:
-        for model in GEMINI_MODELS:
-            for attempt in range(retries):
-                try:
-                    resp = requests.post(
-                        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                        params={"key": api_key},
-                        headers={"Content-Type": "application/json"},
-                        json={
-                            "contents":          [{"role": "user", "parts": [{"text": user}]}],
-                            "systemInstruction": {"parts": [{"text": system}]},
-                            "generationConfig":  {"temperature": 0.0, "maxOutputTokens": 2048},
-                        },
-                        timeout=25,
-                    )
-                    if resp.status_code == 429:
-                        print(f"[NL2SQL] Gemini key ...{api_key[-8:]} {model} 429 — trying next key/model")
-                        last_err = f"429 rate limit on {model}"
-                        break  # try next model / next key immediately
-                    resp.raise_for_status()
-                    return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-                except requests.HTTPError as e:
-                    last_err = e
-                    break
-                except Exception as e:
-                    last_err = e
-                    break
-    raise RuntimeError(f"Gemini failed: {last_err}")
-
-
-def _call_groq(system: str, user: str) -> str:
-    from openai import OpenAI
-    last_err = None
-    for key in GROQ_KEYS:
-        for model in GROQ_MODELS:
-            try:
-                client = OpenAI(
-                    base_url="https://api.groq.com/openai/v1",
-                    api_key=key.strip(),
-                    timeout=20.0,
-                )
-                resp = client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": system},
-                        {"role": "user",   "content": user},
-                    ],
-                    temperature=0.0,
-                    max_tokens=1500,
-                )
-                return resp.choices[0].message.content.strip()
-            except Exception as e:
-                last_err = e
-    raise RuntimeError(f"Groq failed: {last_err}")
-
-
 def _call_ai(system_full: str, system_compact: str, user: str) -> str:
-    """
-    Provider chain — most capable first.
-    SambaNova and Gemini get full schema + sample data.
-    Groq gets compact schema (columns only) to avoid 413.
-    """
-    for name, fn, sys in [
-        ("SambaNova (DeepSeek V3.1 / Llama 70B)", _call_sambanova, system_full),
-        ("Gemini 2.5 Flash",                       _call_gemini,    system_full),
-    ]:
-        try:
-            result = fn(sys, user)
-            print(f"[NL2SQL] answered by {name}")
-            return result
-        except Exception as e:
-            print(f"[NL2SQL] {name} failed: {str(e)[:120]}")
-
     try:
-        result = _call_groq(system_compact, user)
-        print("[NL2SQL] answered by Groq (compact schema)")
-        return result
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": system_full},
+                {"role": "user",   "content": user},
+            ],
+            temperature=0.0,
+            max_tokens=1500,
+        )
+        return response.choices[0].message.content.strip()
     except Exception as e:
-        print(f"[NL2SQL] Groq failed: {str(e)[:120]}")
-
-    raise RuntimeError("All AI providers failed")
+        print(f"[NL2SQL] OpenAI failed: {e}")
+        raise RuntimeError(f"OpenAI failed: {e}")
 
 
 # ── SQL generation ────────────────────────────────────────────────────────────
@@ -1100,8 +1023,11 @@ def _clean_sql(raw: str) -> str:
 def _validate(raw: str) -> str:
     if raw.upper().startswith("CANNOT_ANSWER"):
         raise ValueError("Cannot be answered from the schema")
-    if not re.match(r"^\s*SELECT\b", raw, re.IGNORECASE):
+    
+    # 🟢 UPDATE: Bracket '(' se shuru hone wali queries ko bhi allow karo
+    if not re.match(r"^\s*(?:SELECT|WITH|\()", raw, re.IGNORECASE):
         raise ValueError(f"Non-SELECT output: {raw[:80]}")
+        
     if raw.count("(") != raw.count(")"):
         raise ValueError(f"Truncated SQL (unbalanced parentheses): {raw[-60:]}")
     return raw
@@ -1189,3 +1115,5 @@ def format_answer(user_query: str, rows: list, columns: list,
 
 
 #fgddxf
+
+

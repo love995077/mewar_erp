@@ -20,5 +20,17 @@ pytest test_bot.py -v
 modal deploy modal_deploy.py  
 
 ## whtsapp
+modal deploy modal_deploy.py
 
 ## agent
+python -m streamlit run app/ai_agents/ai_dashboard.py
+
+
+## n8n
+docker run -d --name my-n8n -p 5678:5678 -v n8n_data:/home/node/.n8n n8nio/n8n
+
+## direct n8n without docker 
+npx n8n
+
+## run n8n
+npx n8n

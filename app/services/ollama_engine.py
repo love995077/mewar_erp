@@ -423,15 +423,14 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 load_dotenv(override=True)
-MODEL_NAME = "llama-3.3-70b-versatile"
+# 🚀 Ab hum OpenAI ka fast aur sasta model use karenge
+MODEL_NAME = "gpt-4o-mini"
 
-# 🔑 API KEYS POOL (Dono keys ko yahan list mein daala hai)
-GROQ_KEYS = [
-    os.getenv("GROQ_API_KEY_1"),
-    os.getenv("GROQ_API_KEY_2")
-]
-# Track karne ke liye ki abhi kaunsi key use ho rahi hai
-current_key_index = 0
+# 🔑 Nayi OpenAI API Key (Apni .env file mein OPENAI_API_KEY daal dena)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+
+# Client ek hi baar initialize karenge (Koi base_url override ki zaroorat nahi)
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 def clean_json_string(text: str):
     text = re.sub(r'^```json\s*', '', text, flags=re.MULTILINE)
@@ -564,89 +563,61 @@ Respond ONLY with a raw, valid JSON object. DO NOT wrap the output in markdown c
         messages.append({"role": msg["role"], "content": content})
     messages.append({"role": "user", "content": user_text})
 
-    # 🔄 ROTATION LOGIC: Loop tab tak chalega jab tak success na mile ya keys khatam na ho
-    for attempt in range(len(GROQ_KEYS)):
-        try:
-            active_key = GROQ_KEYS[current_key_index].strip()
-            client = OpenAI(
-                base_url="https://api.groq.com/openai/v1", 
-                api_key=active_key,
-                timeout=10.0
-            )
+    try:
+        # OpenAI API Hit (Bina kisi loop ya rotation ke)
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=messages,
+            response_format={ "type": "json_object" },
+            temperature=0.0 
+        )
+        
+        raw_content = response.choices[0].message.content
+        
+        # --- JSON Safai ---
+        clean_str = clean_json_string(raw_content).strip()
+        data = json.loads(clean_str) 
+        
+        # Default filters management
+        default_filters = {
+            "limit": 5, "status": None, "priority": None, "city": None, 
+            "machine": None, "category": None, "from_date": None, "to_date": None
+        }
+        if "filters" not in data:
+            data["filters"] = default_filters
+        else:
+            for key, val in default_filters.items():
+                if key not in data["filters"]:
+                    data["filters"][key] = val
+        
+        return data
 
-            response = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=messages,
-                response_format={ "type": "json_object" },
-                temperature=0.0 
-            )
-            
-            raw_content = response.choices[0].message.content
-            
-            # --- Yahan se humne kachra saaf karna shuru kiya ---
-            clean_str = raw_content.strip()
-            if clean_str.startswith("```json"): 
-                clean_str = clean_str[7:]
-            if clean_str.startswith("```"): 
-                clean_str = clean_str[3:]
-            if clean_str.endswith("```"): 
-                clean_str = clean_str[:-3]
-            clean_str = clean_str.strip()
-            # --- Kachra saaf ho gaya ---
-
-            # Ab clean string ko parse karo
-            data = json.loads(clean_str) 
-            
-            # Default filters management
-            default_filters = {
+    except json.JSONDecodeError as jde:
+        print(f"[AI] JSON Decode Error. Raw content from AI:\n{raw_content}")
+        
+        # Error aane par SMART DEGRADATION (Fallback)
+        fallback_intent = "supplier_search" if any(w in user_text.lower() for w in ["supplier", "party", "minerlas", "minerals", "construction", "shri"]) else "search"
+        
+        return {
+            "intents": [fallback_intent],
+            "search_target": user_text,
+            "filters": {
                 "limit": 5, "status": None, "priority": None, "city": None, 
                 "machine": None, "category": None, "from_date": None, "to_date": None
-            }
-            if "filters" not in data:
-                data["filters"] = default_filters
-            else:
-                for key, val in default_filters.items():
-                    if key not in data["filters"]:
-                        data["filters"][key] = val
-            
-            return data
-
-        # Agar JSON padhne mein error aaye (SMART DEGRADATION)
-        except json.JSONDecodeError as jde:
-            print(f"[AI] JSON Decode Error. Raw content from AI:\n{raw_content}")
-            
-            # Error dikhane ke bajaye, hum user ka input direct use kar lenge!
-            fallback_intent = "supplier_search" if any(w in user_text.lower() for w in ["supplier", "party", "minerlas", "minerals", "construction", "shri"]) else "search"
-            
-            return {
-                "intents": [fallback_intent],
-                "search_target": user_text, # Direct user ka input bhej do
-                "filters": {
-                    "limit": 5, "status": None, "priority": None, "city": None, 
-                    "machine": None, "category": None, "from_date": None, "to_date": None
-                },
-                "reasoning": "hmm ek sec... main database mein check karta hoon 🔍" # Safe message
-            }
-            
-        # Agar koi aur error aaye (jaise API limit)
-        except Exception as e:
-            # 🛑 RATE LIMIT CHECK: Agar 429 error hai toh key badlo
-            if "429" in str(e) or "rate_limit_exceeded" in str(e).lower():
-                print(f"[AI] Groq Key {current_key_index + 1} limit hit! Switching key...")
-                current_key_index = (current_key_index + 1) % len(GROQ_KEYS)
-                continue 
-            else:
-                print(f"[AI] AI Error: {e}")
-                current_key_index = (current_key_index + 1) % len(GROQ_KEYS)
-
-    # Final Fallback agar sab fail ho jaye
-    return {
-        "intents": ["supplier_search"] if any(w in user_text.lower() for w in ["supplier", "party", "minerls", "construction", "shri"]) else ["search"],
-        "search_target": user_text, 
-        "specific_items": [], 
-        "filters": {"limit": 5, "status": None, "priority": None, "city": None, "machine": None, "category": None, "from_date": None, "to_date": None}
-    }
-
+            },
+            "reasoning": "hmm ek sec... main database mein check karta hoon 🔍"
+        }
+        
+    except Exception as e:
+        print(f"[AI] OpenAI Error: {e}")
+        # Final Fallback agar API hit fail ho jaye
+        return {
+            "intents": ["supplier_search"] if any(w in user_text.lower() for w in ["supplier", "party", "minerls", "construction", "shri"]) else ["search"],
+            "search_target": user_text, 
+            "specific_items": [], 
+            "filters": {"limit": 5, "status": None, "priority": None, "city": None, "machine": None, "category": None, "from_date": None, "to_date": None},
+            "reasoning": "Kuch network issue hai lagta hai, ek baar phir se try karo na bhai 🔄"
+        }
 
     ##hello
     
