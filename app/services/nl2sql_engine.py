@@ -856,11 +856,6 @@ CRITICAL RULES (never violate):
 - Hindi/Hinglish list words: "sarii", "saari", "saare", "sari", "sabhi", "sab", "sare" all mean "all" — fetch ALL rows with NO date or status filter unless the user also specifies one
 - Date day filter: "13 date wali", "13 tarikh wali", "only 13 date" means DAY(transaction_date) = 13 — use DAY() function
 - "X month wali" or "X mahine wali" means MONTH(transaction_date) = X
-- INVENTORY SHORTAGE IN PROJECTS: "kis project mein X ki shortage hai" or "which project needs X" means:
-  JOIN project_item pi ON pi.inventory_id = inventories.id, then check if pi.quantity > current_stock.
-  current_stock = COALESCE((SELECT SUM(CASE WHEN LOWER(txn_type)='in' THEN quantity ELSE -quantity END) FROM stock_transactions WHERE inventory_id = i.id), i.opening_quantity, 0)
-  A project has a shortage if pi.quantity > current_stock for that item.
-  Return: project name, item name, required quantity (pi.quantity), available stock, shortage = pi.quantity - stock.
 - GLOBAL INVENTORY SHORTAGE: "inventory items ki shortage" (without project context) means items where
   current_stock < inventories.min_quantity. shortage = min_quantity - current_stock.
   current_stock for global shortage = COALESCE(opening_quantity, 0) + net stock_transactions (In minus Out).
@@ -933,7 +928,7 @@ CRITICAL RULES (never violate):
   (CRITICAL: Intelligently fix minor typos in the LIKE clause. e.g., if user writes 'sonampur', search for '%sonapur%').
 
 - GRN LIST DASHBOARD: If the user asks for "grn list", "saare grn", or "grn dikhao", fetch the exact dashboard view using this SQL structure:
-  SELECT g.grn_number, po.po_number, s.supplier_name, g.grn_date, g.invoice_no, SUM(gi.accepted_qty) AS total_accepted
+  SELECT g.id, g.grn_number, po.po_number, s.supplier_name, g.grn_date, g.invoice_no, COALESCE(SUM(gi.accepted_qty), 0) AS total_accepted
   FROM grns g
   LEFT JOIN purchase_orders po ON g.purchase_order_id = po.id
   LEFT JOIN suppliers s ON po.supplier_id = s.id
