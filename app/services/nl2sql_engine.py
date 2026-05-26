@@ -889,29 +889,69 @@ CRITICAL RULES (never violate):
   NEVER select `model` as a stock value. `model` is a text descriptor column on inventories. `current_stock` must always be computed from opening_quantity + stock_transactions SUM.
 - Pronouns "iski", "iska", "is item ki", "is cheez ki" in a follow-up refer to the item mentioned in the previous turn — resolve them from conversation context.
 - REQUIRED VS AVAILABLE STOCK ("required vs available", "shortage", "sabse badi shortage", "project ke liye kitna chahiye vs kitna hai"):
-  Business logic (exact match with PHP requiredVsAvailable):
+  Business logic (exact match with ERP Dashboard):
   - Active projects = status NOT IN ('completed','hold') AND is_deleted=0
-  - Required = BOM (pp.quantity * pit.quantity) + Direct (pi.quantity) for active projects.
+  - Base Required = BOM (pp.quantity * pit.quantity) + Direct (pi.quantity) for active projects.
+  - Issued/Approved Qty = Any requisition_slip_rows quantity that has been approved/issued.
+  - Final Required Qty = (Base Required) - (Issued/Approved Qty)  [NOTE: Jis item ki Request Slip approved ho gayi, wo required qty me show nahi hogi]
   - Transactions grouped by inventory:
     * t_in = In (excluding ref_type 'Finish')
     * t_out = Out (excluding ref_type 'Machining')
     * t_finish = In with ref_type 'Finish'
     * t_mc = Out with ref_type 'Machining'
   - Available (Total) = t_in - t_out
-  - Difference (Short/Extra) = Available - Required
+  - Difference (Short/Extra) = Available - Final Required
   ALWAYS use this exact SQL pattern:
   SELECT i.id, i.name, i.model, i.classification,
-    COALESCE(bom.req,0)+COALESCE(direct.req,0) AS required_qty,
-    COALESCE(t_in,0) - COALESCE(t_out,0) AS available_qty,
-    CASE WHEN i.classification IN ('FINISH', '', 'null') OR i.classification IS NULL THEN 0 ELSE COALESCE(t_mc,0) - COALESCE(t_finish,0) END AS machining,
-    CASE WHEN i.classification IN ('FINISH', '', 'null') OR i.classification IS NULL THEN COALESCE(t_in,0) - COALESCE(t_out,0) ELSE COALESCE(t_finish,0) - COALESCE(t_out,0) END AS finish,
-    CASE WHEN i.classification IN ('FINISH', '', 'null') OR i.classification IS NULL THEN 0 ELSE COALESCE(t_in,0) - COALESCE(t_mc,0) END AS semi_finish,
-    (COALESCE(t_in,0) - COALESCE(t_out,0)) - (COALESCE(bom.req,0)+COALESCE(direct.req,0)) AS short_extra
+    GREATEST((COALESCE(bom.req, 0) + COALESCE(direct.req, 0)) - COALESCE(rs.issued, 0), 0) AS required_qty,
+    COALESCE(st.t_in, 0) - COALESCE(st.t_out, 0) AS available_qty,
+    CASE 
+      WHEN i.classification = 'FINISH' OR i.classification IS NULL OR i.classification = '' THEN 0 
+      ELSE COALESCE(st.t_mc, 0) - COALESCE(st.t_finish, 0) 
+    END AS machining,
+    CASE 
+      WHEN i.classification = 'FINISH' OR i.classification IS NULL OR i.classification = '' THEN COALESCE(st.t_in, 0) - COALESCE(st.t_out, 0) 
+      ELSE COALESCE(st.t_finish, 0) - COALESCE(st.t_out, 0) 
+    END AS finish,
+    CASE 
+      WHEN i.classification = 'FINISH' OR i.classification IS NULL OR i.classification = '' THEN 0 
+      ELSE COALESCE(st.t_in, 0) - COALESCE(st.t_mc, 0) 
+    END AS semi_finish,
+    (COALESCE(st.t_in, 0) - COALESCE(st.t_out, 0)) - GREATEST((COALESCE(bom.req, 0) + COALESCE(direct.req, 0)) - COALESCE(rs.issued, 0), 0) AS short_extra
   FROM inventories i
-  LEFT JOIN (SELECT pit.inventory_id, SUM(pp.quantity*pit.quantity) AS req FROM projects p JOIN project_products pp ON pp.project_id=p.id AND pp.is_deleted=0 JOIN product_items pit ON pit.product_id=pp.product_id AND pit.is_deleted=0 WHERE p.status NOT IN ('completed','hold') AND p.is_deleted=0 GROUP BY pit.inventory_id) bom ON bom.inventory_id=i.id
-  LEFT JOIN (SELECT pi.inventory_id, SUM(pi.quantity) AS req FROM projects p JOIN project_item pi ON pi.project_id=p.id WHERE p.status NOT IN ('completed','hold') AND p.is_deleted=0 GROUP BY pi.inventory_id) direct ON direct.inventory_id=i.id
-  LEFT JOIN (SELECT inventory_id, SUM(CASE WHEN txn_type='In' AND COALESCE(ref_type,'')!='Finish' THEN quantity ELSE 0 END) AS t_in, SUM(CASE WHEN txn_type='Out' AND COALESCE(ref_type,'')!='Machining' THEN quantity ELSE 0 END) AS t_out, SUM(CASE WHEN txn_type='In' AND ref_type='Finish' THEN quantity ELSE 0 END) AS t_finish, SUM(CASE WHEN txn_type='Out' AND ref_type='Machining' THEN quantity ELSE 0 END) AS t_mc FROM stock_transactions GROUP BY inventory_id) st ON st.inventory_id=i.id
-  WHERE bom.req IS NOT NULL OR direct.req IS NOT NULLWHERE (COALESCE(bom.req,0)+COALESCE(direct.req,0)) > 0 OR (COALESCE(t_in,0) - COALESCE(t_out,0)) > 0  ORDER BY short_extra ASC
+  LEFT JOIN (
+      SELECT pit.inventory_id, SUM(pp.quantity * pit.quantity) AS req 
+      FROM projects p 
+      JOIN project_products pp ON pp.project_id = p.id AND pp.is_deleted = 0 
+      JOIN product_items pit ON pit.product_id = pp.product_id AND pit.is_deleted = 0 
+      WHERE p.status NOT IN ('completed','hold') AND p.is_deleted = 0 
+      GROUP BY pit.inventory_id
+  ) bom ON bom.inventory_id = i.id
+  LEFT JOIN (
+      SELECT pi.inventory_id, SUM(pi.quantity) AS req 
+      FROM projects p 
+      JOIN project_item pi ON pi.project_id = p.id 
+      WHERE p.status NOT IN ('completed','hold') AND p.is_deleted = 0 
+      GROUP BY pi.inventory_id
+  ) direct ON direct.inventory_id = i.id
+  LEFT JOIN (
+      SELECT rsr.item_id, SUM(rsr.quantity) AS issued
+      FROM requisition_slip_rows rsr
+      JOIN requisition_slips rs ON rsr.requisition_slip_id = rs.id
+      WHERE LOWER(rs.status) IN ('approved', 'completed')
+      GROUP BY rsr.item_id
+  ) rs ON rs.item_id = i.id
+  LEFT JOIN (
+      SELECT inventory_id, 
+             SUM(CASE WHEN LOWER(txn_type) = 'in' AND LOWER(COALESCE(ref_type,'')) != 'finish' THEN quantity ELSE 0 END) AS t_in, 
+             SUM(CASE WHEN LOWER(txn_type) = 'out' AND LOWER(COALESCE(ref_type,'')) != 'machining' THEN quantity ELSE 0 END) AS t_out, 
+             SUM(CASE WHEN LOWER(txn_type) = 'in' AND LOWER(ref_type) = 'finish' THEN quantity ELSE 0 END) AS t_finish, 
+             SUM(CASE WHEN LOWER(txn_type) = 'out' AND LOWER(ref_type) = 'machining' THEN quantity ELSE 0 END) AS t_mc 
+      FROM stock_transactions 
+      GROUP BY inventory_id
+  ) st ON st.inventory_id = i.id
+  WHERE (GREATEST((COALESCE(bom.req, 0) + COALESCE(direct.req, 0)) - COALESCE(rs.issued, 0), 0)) > 0 OR (COALESCE(st.t_in, 0) - COALESCE(st.t_out, 0)) > 0 
+  ORDER BY short_extra ASC
 - GROUP BY STRICT MODE: If you use a GROUP BY clause, EVERY column in the SELECT list that is not inside an aggregate function (like SUM, COUNT, MAX) MUST be included in the GROUP BY clause. Do not leave trailing non-aggregated columns.
 - SOUNDS LIKE SYNTAX: NEVER use wildcard characters ('%') with SOUNDS LIKE. Correct: `col SOUNDS LIKE 'term'`. Wrong: `col SOUNDS LIKE '%term%'`.
 - DATE COMPARISONS: For queries asking about "today", "aaj", or "current", ALWAYS use the MySQL CURDATE() or NOW() functions instead of hardcoding dates.
