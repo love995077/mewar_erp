@@ -395,4 +395,9 @@ def get_kpi_stats(db: Session = Depends(get_db)):
 @app.get("/agent")
 def serve_agent_dashboard():
     # Ye route hit hote hi aapki nayi HTML file serve ho jayegi
-    return FileResponse("agent_dashboard.html")
+    return FileResponse("agent_ui/agent_dashboard.html")
+
+@app.get("/object_0.glb")
+def serve_3d_model():
+    # Ye route browser ko 3D file dega
+    return FileResponse("agent_ui/object_0.glb")
