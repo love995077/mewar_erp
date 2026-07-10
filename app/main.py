@@ -162,6 +162,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import Session
 from sqlalchemy import text  # <-- NAYA IMPORT: Custom SQL queries chalane ke liye zaroori hai
 
+
 # Database
 from app.db.database import get_db, SessionLocal
 
@@ -173,6 +174,9 @@ from app.routers.inventory_smart import router as inventory_smart_router
 from app.routers.whatsapp import router as whatsapp_router
 from app.services.proactive_agent import run_proactive_workflow
 from app.routers.proactive_agent import router as agent_action_router
+from app.routers import gen_ui
+
+
 
 # ==========================================
 # 🔌 WEBSOCKET MANAGER (For 3D Dashboard)
@@ -274,7 +278,8 @@ app.include_router(auth_router)
 app.include_router(inventory_router)
 app.include_router(inventory_smart_router)
 app.include_router(whatsapp_router, prefix="/whatsapp")
-app.include_router(agent_action_router) 
+app.include_router(agent_action_router)
+app.include_router(gen_ui.router) 
 
 # ==========================================
 # 🟢 ROOT & WEBSOCKET ENDPOINTS

@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Command Center - 2D Generative Dashboard</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050505; /* Default Night */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            transition: background-color 0.5s;
+        }
+        
+        /* Layout for 2D chart and card */
+        #dashboard-container {
+            position: absolute;
+            top: 80px;
+            left: 350px; /* Room for the AI Card */
+            right: 40px;
+            bottom: 120px; /* Room for the Search Bar */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #command-overlay {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60%;
+            max-width: 800px;
+            background: rgba(20, 20, 20, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid #00F0FF;
+            border-radius: 20px;
+            padding: 15px 25px;
+            display: flex;
+            gap: 15px;
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.2);
+            z-index: 100;
+            transition: 0.3s;
+        }
+        #cmd-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: white;
+            font-size: 18px;
+            outline: none;
+        }
+        #cmd-input::placeholder { color: #888; }
+        
+        #cmd-btn {
+            background: #00F0FF;
+            color: black;
+            border: none;
+            padding: 10px 25px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        #cmd-btn:hover { background: #00c4d1; box-shadow: 0 0 15px #00F0FF; }
+        
+        #status-text {
+            position: absolute;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #00F0FF;
+            font-size: 18px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            text-shadow: 0 0 10px #00F0FF;
+            z-index: 100;
+            display: none;
+        }
+
+        /* 🔥 FLOATING DATA CARD 🔥 */
+        #ai-card {
+            position: absolute;
+            top: 30px;
+            left: 30px;
+            bottom: 120px;
+            background: rgba(10, 15, 25, 0.85);
+            backdrop-filter: blur(8px);
+            border: 1px solid #00F0FF;
+            border-left: 5px solid #00F0FF;
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0, 240, 255, 0.2);
+            z-index: 100;
+            display: none; 
+            width: 300px;
+            overflow-y: auto; /* Allow scrolling for detailed data */
+            transition: 0.3s;
+        }
+        .card-item {
+            margin-bottom: 12px;
+            border-bottom: 1px solid rgba(150,150,150,0.2);
+            padding-bottom: 8px;
+            word-wrap: break-word; 
+        }
+        .card-item:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        /* Top Buttons */
+        .top-btn {
+            position: absolute;
+            top: 20px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid #ffaa00;
+            color: #ffaa00;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 1000;
+            transition: 0.3s;
+            backdrop-filter: blur(5px);
+        }
+        .top-btn:hover { background: #ffaa00; color: #000; }
+        
+        #theme-btn { right: 160px; border-color: #00F0FF; color: #00F0FF; }
+        #theme-btn:hover { background: #00F0FF; color: #000; }
+        #back-btn { right: 20px; }
+
+        /* Styling the canvas for maximum sharpness */
+        #main-chart {
+            width: 100%;
+            height: 100%;
+        }
+
+    </style>
+</head>
+<body>
+
+    <button id="theme-btn" class="top-btn" onclick="toggleTheme()">☀️ Day Mode</button>
+    <button id="back-btn" class="top-btn" onclick="window.location.href='/agent_ui/agent_dashboard.html'">🤖 Back to Agent</button>
+
+    <div id="status-text">Generating Visualization...</div>
+
+    <div id="ai-card">
+        <h3 id="card-title" style="margin: 0 0 15px 0; color: #00F0FF; font-size: 18px; text-transform: uppercase;">📊 AI Analytics</h3>
+        <div id="ai-card-content"></div>
+    </div>
+
+    <div id="dashboard-container">
+        <canvas id="main-chart"></canvas>
+    </div>
+
+    <div id="command-overlay">
+        <input type="text" id="cmd-input" placeholder="Ask AI: sabse bada po kiska hai..." autocomplete="off">
+        <button id="cmd-btn" onclick="askAI()">Generate</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+
+    <script>
+        // Global variables for Chart.js instance and data tracking
+        let chartInstance = null;
+        window.lastAIData = null; 
+
+        // 🌞🌙 DAY & NIGHT THEME LOGIC
+        let isNight = true;
+        function toggleTheme() {
+            isNight = !isNight;
+            const btn = document.getElementById("theme-btn");
+            const card = document.getElementById("ai-card");
+            const overlay = document.getElementById("command-overlay");
+            const input = document.getElementById("cmd-input");
+
+            if(isNight) {
+                document.body.style.backgroundColor = "#050505";
+                card.style.background = "rgba(10, 15, 25, 0.85)";
+                card.style.color = "white";
+                overlay.style.background = "rgba(20, 20, 20, 0.8)";
+                input.style.color = "white";
+                btn.innerHTML = "☀️ Day Mode";
+            } else {
+                document.body.style.backgroundColor = "#e8ecef"; 
+                card.style.background = "rgba(255, 255, 255, 0.9)";
+                card.style.color = "#333";
+                overlay.style.background = "rgba(255, 255, 255, 0.9)";
+                input.style.color = "black";
+                btn.innerHTML = "🌙 Night Mode";
+            }
+            
+            // Re-render chart to update colors based on theme
+            const lastData = window.lastAIData; 
+            if(lastData) build2DUI(lastData);
+        }
+
+        // Global Chart.js configuration for all charts
+        Chart.defaults.font.family = "'Segoe UI', 'Arial', sans-serif";
+        Chart.defaults.font.weight = 'bold';
+        Chart.defaults.color = isNight ? '#ffffff' : '#333333';
+        Chart.register(ChartDataLabels); // Register datalabels plugin
+
+        function askAI() {
+            const input = document.getElementById('cmd-input').value;
+            if (!input) return;
+
+            document.getElementById('status-text').style.display = 'block';
+            document.getElementById('status-text').innerText = "Brainstorming with AI...";
+            document.getElementById('ai-card').style.display = 'none'; 
+
+            fetch('/api/generate-ui', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: input })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('status-text').innerText = "🤖 " + data.message;
+                window.lastAIData = data; // Save for day/night toggle
+                build2DUI(data);
+                setTimeout(() => document.getElementById('status-text').style.display = 'none', 3000);
+            })
+            .catch(error => {
+                document.getElementById('status-text').innerText = "❌ Error: Cannot connect to AI Brain.";
+                console.error(error);
+                setTimeout(() => document.getElementById('status-text').style.display = 'none', 4000);
+            });
+        }
+
+        // Currency formatter to replicate the 3D text amounts (lakhs format)
+        const currencyFormatter = (value) => {
+            return "₹" + (value >= 100000 ? (value/100000).toFixed(1) + "L" : value.toLocaleString('en-IN'));
+        };
+
+        function build2DUI(aiResponse) {
+            // Puraana chart aur metric hatao taaki naya ban sake
+            if (chartInstance) {
+                chartInstance.destroy();
+                chartInstance = null;
+            }
+            const oldMetric = document.getElementById('metric-display');
+            if (oldMetric) oldMetric.remove();
+            
+            // Canvas ko wapas show karo (agar pichli baar hide hua tha)
+            document.getElementById('main-chart').style.display = 'block';
+
+            const ctx = document.getElementById('main-chart').getContext('2d');
+            const dataArr = aiResponse.data || (aiResponse.value ? [aiResponse.value] : []); 
+            const labelsArr = aiResponse.labels || [aiResponse.label || "Data"]; 
+            const chartType = aiResponse.chart_type || "bar"; 
+
+            if (!dataArr || dataArr.length === 0) {
+                document.getElementById('status-text').innerText = "No data found!";
+                document.getElementById('status-text').style.display = 'block';
+                setTimeout(() => document.getElementById('status-text').style.display = 'none', 3000);
+                return;
+            }
+
+            const chartColorsNight = ['#00F0FF', '#FF0055', '#00FF66', '#FFDD00', '#AA00FF', '#FF8800'];
+            const chartColorsDay = ['#007BFF', '#DC3545', '#28A745', '#FFC107', '#6F42C1', '#FD7E14'];
+            const activeColors = isNight ? chartColorsNight : chartColorsDay;
+            const borderColors = activeColors.map(color => color + 'CC');
+            const backgroundColors = activeColors.map(color => color + '33'); 
+
+            let cardHTML = ""; 
+            const cardTextColor = isNight ? "#bbb" : "#555";
+            const hexOrangeLabel = "#FFAA00"; 
+
+            let chartConfig = {
+                type: 'bar',
+                data: { labels: labelsArr, datasets: [] },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false, 
+                    layout: { padding: { top: 30, bottom: 20, left: 20, right: 20 } },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { enabled: true },
+                        title: { display: true, text: aiResponse.message || "AI Analytics", color: isNight ? '#ffffff' : '#333333', font: { size: 16 } },
+                        datalabels: { display: false }
+                    },
+                    scales: { x: { display: false }, y: { display: false } }
+                }
+            };
+
+            // ==========================================
+            // 📊 1. BAR CHART LOGIC
+            // ==========================================
+            if (chartType === "bar") {
+                chartConfig.type = 'bar';
+                chartConfig.data.datasets.push({
+                    data: dataArr, backgroundColor: backgroundColors, borderColor: borderColors, borderWidth: 2, borderRadius: 10
+                });
+
+                chartConfig.options.plugins.datalabels = {
+                    display: true, align: 'center', anchor: 'center', backgroundColor: '#ffffffEE', borderRadius: 5, padding: 8, color: '#000000', font: { size: 16, weight: 'bold' }, formatter: currencyFormatter
+                };
+
+                chartConfig.options.scales.x = {
+                    display: true, grid: { display: false }, ticks: { color: hexOrangeLabel, font: { size: 14, weight: 'bold' }, autoSkip: false }
+                };
+                chartConfig.options.scales.y = {
+                    display: true, beginAtZero: true, grid: { color: isNight ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }, ticks: { color: isNight ? '#ffffff' : '#333333', font: { size: 14 }, callback: currencyFormatter }
+                };
+
+                dataArr.forEach((value, index) => {
+                    let originalName = labelsArr[index] || `Item ${index + 1}`;
+                    const hexColorStr = activeColors[index % activeColors.length];
+                    cardHTML += `<div class="card-item"><div style="font-size: 14px; color: ${cardTextColor};">${originalName}</div><div style="font-size: 16px; font-weight: bold; color: ${hexColorStr};">₹ ${value.toLocaleString('en-IN')}</div></div>`;
+                });
+                
+                chartInstance = new Chart(ctx, chartConfig);
+            } 
+            // ==========================================
+            // 🍕 2. PIE CHART LOGIC
+            // ==========================================
+            else if (chartType === "pie") {
+                chartConfig.type = 'pie';
+                
+                let processedData = [];
+                let processedLabels = [];
+                if (dataArr.length > 8) {
+                    let combined = dataArr.map((val, idx) => ({ val: val, label: labelsArr[idx] }));
+                    combined.sort((a, b) => b.val - a.val);
+                    let top8 = combined.slice(0, 8);
+                    let rest = combined.slice(8);
+                    let othersSum = rest.reduce((sum, item) => sum + item.val, 0);
+                    top8.forEach(item => { processedData.push(item.val); processedLabels.push(item.label); });
+                    if (othersSum > 0) { processedData.push(othersSum); processedLabels.push("Others"); }
+                } else {
+                    processedData = dataArr; processedLabels = labelsArr;
+                }
+
+                chartConfig.data.labels = processedLabels;
+                chartConfig.data.datasets.push({
+                    data: processedData, backgroundColor: activeColors, borderColor: isNight ? '#000000' : '#ffffff', borderWidth: 2, hoverOffset: 15
+                });
+
+                chartConfig.options.plugins.datalabels = {
+                    display: true, align: 'center', anchor: 'center', backgroundColor: '#ffffffEE', borderRadius: 5, padding: 6, color: '#000000', font: { size: 14, weight: 'bold' }, formatter: currencyFormatter
+                };
+
+                processedData.forEach((value, index) => {
+                    let originalName = processedLabels[index] || `Item ${index + 1}`;
+                    const hexColorStr = activeColors[index % activeColors.length];
+                    const totalValue = processedData.reduce((sum, val) => sum + val, 0);
+                    const percentage = (value / totalValue) * 100;
+                    cardHTML += `<div class="card-item"><div style="font-size: 14px; color: ${cardTextColor};">${originalName} (${percentage.toFixed(1)}%)</div><div style="font-size: 16px; font-weight: bold; color: ${hexColorStr};">₹ ${value.toLocaleString('en-IN')}</div></div>`;
+                });
+                
+                chartInstance = new Chart(ctx, chartConfig);
+            }
+            // ==========================================
+            // 💎 3. SINGLE METRIC (Sabse bada PO, Total, etc)
+            // ==========================================
+            else {
+                // Canvas chupao kyunki graph nahi, text dikhana hai
+                document.getElementById('main-chart').style.display = 'none';
+                
+                const metricVal = dataArr[0];
+                const metricLabel = labelsArr[0] || "Total / Highest";
+                const displayVal = typeof metricVal === 'number' ? currencyFormatter(metricVal) : metricVal;
+                const highlightColor = isNight ? '#00FF66' : '#28A745';
+                
+                // Screen ke center mein bada sa HTML element banao
+                const centerDiv = document.createElement('div');
+                centerDiv.id = 'metric-display';
+                centerDiv.style.textAlign = 'center';
+                centerDiv.style.position = 'absolute';
+                centerDiv.style.top = '50%';
+                centerDiv.style.left = '50%';
+                centerDiv.style.transform = 'translate(-50%, -50%)';
+                centerDiv.innerHTML = `
+                    <div style="font-size: 28px; color: ${cardTextColor}; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px;">${metricLabel}</div>
+                    <div style="font-size: 72px; font-weight: bold; color: ${highlightColor}; text-shadow: 0 0 20px ${highlightColor}66;">${displayVal}</div>
+                `;
+                
+                document.getElementById('dashboard-container').appendChild(centerDiv);
+                
+                cardHTML = `<div class="card-item"><div style="font-size: 14px; color: ${cardTextColor};">${metricLabel}</div><div style="font-size: 16px; font-weight: bold; color: ${highlightColor};">${displayVal}</div></div>`;
+            }
+
+            document.getElementById('ai-card-content').innerHTML = cardHTML;
+            document.getElementById('ai-card').style.display = 'block';
+        }
+    </script>
+</body>
+</html>

@@ -62,16 +62,8 @@ body.light-gradient { background: radial-gradient(circle at center, #e2e8f0 0%, 
     backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
 }
 
-/* ── UI Hide Toggle Class ── */
-.hide-ui-elements {
-    opacity: 0 !important;
-    pointer-events: none !important;
-    transform: scale(0.95);
-    transition: all 0.3s ease-in-out;
-}
-
 /* ── KPI Banner ── */
-#kpi-banner { background:var(--kpi-bg); padding:0 28px; display:flex; align-items:center; gap:0; overflow:hidden; height:48px; border-bottom: 1px solid var(--border); transition: all 0.3s ease-in-out;}
+#kpi-banner { background:var(--kpi-bg); padding:0 28px; display:flex; align-items:center; gap:0; overflow:hidden; height:48px; border-bottom: 1px solid var(--border); }
 .kpi-item { display:flex; align-items:center; gap:10px; padding:0 22px; border-right:1px solid rgba(255,255,255,0.08); flex-shrink:0; }
 .kpi-item:first-child { padding-left:0; }
 .kpi-label { font-size:9.5px; letter-spacing:1px; text-transform:uppercase; color:rgba(255,255,255,0.5); }
@@ -100,7 +92,7 @@ body.light-gradient { background: radial-gradient(circle at center, #e2e8f0 0%, 
 .toggle-label { font-size:11px; color:var(--text-3); }
 
 /* ── Alert toast system ── */
-#alert-stack { position:fixed; top:120px; right:20px; z-index:999; display:flex; flex-direction:column; gap:10px; width:320px; pointer-events:none; transition: all 0.3s ease-in-out;}
+#alert-stack { position:fixed; top:120px; right:20px; z-index:999; display:flex; flex-direction:column; gap:10px; width:320px; pointer-events:none; }
 .alert-toast { background:var(--alert-bg); border:1px solid var(--border2); border-radius:12px; padding:12px 14px; box-shadow:var(--shadow-lg); pointer-events:all; display:flex; align-items:flex-start; gap:10px; animation:slideIn .3s cubic-bezier(.2,.8,.2,1); transition:opacity .3s,transform .3s; }
 .alert-toast.dismissing { opacity:0; transform:translateX(20px); }
 @keyframes slideIn { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:none} }
@@ -113,7 +105,7 @@ body.light-gradient { background: radial-gradient(circle at center, #e2e8f0 0%, 
 .alert-close { background:none; border:none; cursor:pointer; color:var(--text-3); font-size:14px; padding:0; line-height:1; flex-shrink:0; }
 
 /* ── Main layout ── */
-#main { padding:22px 28px 40px; max-width:1440px; margin:0 auto; position: relative; z-index: 10; pointer-events: none; transition: all 0.3s ease-in-out;}
+#main { padding:22px 28px 40px; max-width:1440px; margin:0 auto; position: relative; z-index: 10; pointer-events: none;}
 #main > * { pointer-events: auto; }
 .section-label { font-size:11px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--text-3); margin-bottom:14px; }
 #agents { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; margin-bottom:28px; }
@@ -207,7 +199,8 @@ body.light-gradient { background: radial-gradient(circle at center, #e2e8f0 0%, 
     </div>
   </div>
   <div class="nav-right">
-    <button onclick="toggleAgentUI()" class="nav-badge" style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2);">👁️ Toggle UI</button>
+    <button onclick="window.location.href='/command_center/command_center.html'" class="nav-badge" style="background: transparent; border-color: #00F0FF; color: #00F0FF; box-shadow: 0 0 5px rgba(0,240,255,0.2);">🪄 Generative UI</button>
+
     <div class="nav-badge" onclick="triggerManualScan()">🔄 TEST AGENT</div>
     <div class="nav-badge"><span class="pulse"></span>3 Agents Active</div>
     <span class="toggle-label">🌙</span>
@@ -434,19 +427,13 @@ var AGENT_COLORS = { scanner:"#2196f3", optimizer:"#ff6f00", approver:"#2e7d32" 
 var AGENT_ICONS  = { scanner:"🔍", optimizer:"⚡", approver:"✅" };
 var AGENT_NAMES  = { scanner:"Scanner", optimizer:"Optimizer", approver:"Approver" };
 
-// NAYA LOGIC: Taki teeno box ek sath open reh sakein
 function toggleChat(id){
-  var panel = $("chat-"+id);
-  panel.classList.toggle("open");
+  var panel=$("chat-"+id);
+  var isOpen=panel.classList.contains("open");
+  ["scanner","optimizer","approver"].forEach(function(a){ $("chat-"+a).classList.remove("open") });
+  if(!isOpen) panel.classList.add("open");
 }
 window.toggleChat=toggleChat;
-
-// NAYA LOGIC: UI hide/show karne ke liye
-window.toggleAgentUI = function() {
-    $("kpi-banner").classList.toggle("hide-ui-elements");
-    $("main").classList.toggle("hide-ui-elements");
-    $("alert-stack").classList.toggle("hide-ui-elements");
-}
 
 function appendMsg(id, role, text){
   var container=$("msgs-"+id);
@@ -473,8 +460,7 @@ function addLog(icon,bg,title,desc){
 
 // ── FETCH REAL KPI DATA FROM ERP ──
 function fetchKPIs() {
-    // Dynamic URL for Hugging Face
-    fetch('/api/kpi-stats')
+    fetch('http://127.0.0.1:8000/api/kpi-stats')
         .then(res => res.json())
         .then(data => {
             if (data.status === "success") {
@@ -496,9 +482,8 @@ fetchKPIs();
 // Har 2 minute (120000 ms) mein KPI auto-refresh karo
 setInterval(fetchKPIs, 120000);
 
-// Connect to REAL Backend (Dynamic URL for Live Server)
-const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-const ws = new WebSocket(protocol + '//' + window.location.host + '/ws/agent-logs');
+// Connect to REAL Backend
+const ws = new WebSocket("ws://127.0.0.1:8000/ws/agent-logs");
 let currentPayload = null;
 
 ws.onmessage = function(event) {
@@ -536,7 +521,7 @@ ws.onmessage = function(event) {
         appendMsg("optimizer", "ai", messageText);
         if (! $("chat-optimizer").classList.contains("open")) toggleChat("optimizer");
         
-        if (routeKey.includes("optimal supplier") || routeKey.includes("match found") || routeKey.includes("mocking active")) {
+        if (routeKey.includes("optimal supplier") || routeKey.includes("match found")) {
             // Extraction Logic
             const supMatch = messageText.match(/Match Found:\s(.*?)\soffers/);
             const priceMatch = messageText.match(/₹([\d.]+)/);
@@ -561,6 +546,7 @@ ws.onmessage = function(event) {
             const nameSplit = taskName.split("Detected:");
             if(nameSplit.length > 1) $("a1-item").innerText = nameSplit[1].trim();
             
+            // 🛠️ FIX: Regex updated to capture only the exact shortage number
             const shortMatch = messageText.match(/Exact Shortage:\s*([\d.]+)/);
             if (shortMatch) {
                 $("a1-short").innerText = shortMatch[1]; 
@@ -576,8 +562,7 @@ ws.onmessage = function(event) {
 
 // --- MANUAL TRIGGER ---
 window.triggerManualScan = function() {
-    // Dynamic URL for Hugging Face
-    fetch('/trigger-agent');
+    fetch('http://127.0.0.1:8000/trigger-agent');
     
     // Reset UI
     $("btn-approve-action").style.display = "none";
@@ -596,10 +581,7 @@ window.triggerManualScan = function() {
     $("ticker-optimizer").querySelector(".ticker-text").textContent = "Awaiting data...";
     $("ticker-approver").querySelector(".ticker-text").textContent = "Awaiting data...";
     
-    // Make sure Scanner chat is open
-    if (! $("chat-scanner").classList.contains("open")) {
-        toggleChat('scanner');
-    }
+    toggleChat('scanner');
 }
 
 // --- APPROVAL ACTION ---
@@ -609,8 +591,7 @@ $("btn-approve-action").addEventListener('click', function() {
     btn.innerText = "⏳ SAVING TO ERP...";
     btn.style.background = "#ff6f00";
 
-    // Dynamic URL for Hugging Face
-    fetch('/api/confirm-po', {
+    fetch('http://127.0.0.1:8000/api/confirm-po', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(currentPayload)

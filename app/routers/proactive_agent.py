@@ -48,13 +48,21 @@ def confirm_po_in_db(payload: dict, db: Session = Depends(get_db)):
 @router.get("/api/delete-test-po")
 def delete_test_po(db: Session = Depends(get_db)):
     try:
-        # 1. Pehle Items delete karo
-        db.execute(text("DELETE FROM purchase_order_items WHERE purchase_order_id = (SELECT id FROM purchase_orders WHERE po_number = 'MHEL/PO-AI/070517/26-27')"))
-        # 2. Phir Main PO delete karo
-        db.execute(text("DELETE FROM purchase_orders WHERE po_number = 'MHEL/PO-AI/070517/26-27'"))
+        # EXACT PO Number jo live screen par dikh raha hai
+        target_po = "MHEL/PO-AI/070910/26-27"
+        
+        # 1. Logs delete karo
+        db.execute(text(f"DELETE FROM po_status_logs WHERE purchase_order_id IN (SELECT id FROM purchase_orders WHERE po_number = '{target_po}')"))
+        
+        # 2. Items delete karo
+        db.execute(text(f"DELETE FROM purchase_order_items WHERE purchase_order_id IN (SELECT id FROM purchase_orders WHERE po_number = '{target_po}')"))
+        
+        # 3. Main PO delete karo
+        db.execute(text(f"DELETE FROM purchase_orders WHERE po_number = '{target_po}'"))
         
         db.commit()
-        return {"status": "success", "message": "Test PO Successfully Deleted!"}
+        return {"status": "success", "message": f"PO {target_po} deleted successfully!"}
+        
     except Exception as e:
         db.rollback()
         return {"status": "error", "message": str(e)}

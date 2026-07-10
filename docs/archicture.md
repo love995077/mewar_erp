@@ -7,6 +7,8 @@
 ## to run 
 uvicorn app.main:app --reload
 
+ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
 ## streamlit
 streamlit run app/streamlit_app.py
 
@@ -34,3 +36,7 @@ npx n8n
 
 ## run n8n
 npx n8n
+
+## delete po
+
+http://127.0.0.1:8000/api/delete-test-po
