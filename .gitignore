@@ -3,7 +3,13 @@ env/
 venv/
 .venv/
 .conda/
+ENV/
+*.egg-info/
+
+# Ignore secrets
 .env
+.env.*
+!.env.example
 
 # Ignore credential files (Modal API tokens)
 ~/
@@ -21,6 +27,9 @@ __pycache__/
 
 # Ignore test files
 test_bot.py
+
+# Ignore runtime / generated data (contains user conversations)
+chat_history.json
 
 
 
