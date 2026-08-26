@@ -13,13 +13,13 @@
             transition: background-color 0.5s;
         }
         
-        /* 🌟 DYNAMIC GRID SYSTEM 🌟 */
+        /* 🌟 NAYA LAAJAWAB GRID SYSTEM 🌟 */
         #dashboard-container {
             position: absolute;
             top: 80px;
-            left: 400px; /* Space for Left Panel */
+            left: 400px; /* Room for AI Card */
             right: 40px;
-            bottom: 120px; /* Space for Command Bar */
+            bottom: 120px; /* Room for Search Bar */
             display: grid;
             grid-template-columns: repeat(2, 1fr); /* 2 columns */
             gap: 20px;
@@ -28,12 +28,11 @@
             padding-right: 10px;
         }
         
-        /* Custom scrollbar */
+        /* Custom scrollbar for container */
         #dashboard-container::-webkit-scrollbar { width: 8px; }
         #dashboard-container::-webkit-scrollbar-track { background: transparent; }
         #dashboard-container::-webkit-scrollbar-thumb { background: rgba(0, 240, 255, 0.3); border-radius: 4px; }
 
-        /* WIDGETS */
         .widget {
             background: rgba(10, 15, 25, 0.85);
             border: 1px solid rgba(0, 240, 255, 0.2);
@@ -45,25 +44,49 @@
             display: flex;
             flex-direction: column;
         }
+        
         .widget:hover {
             border-color: #00F0FF;
             box-shadow: 0 4px 20px rgba(0, 240, 255, 0.3);
         }
+
         .widget.full-width { grid-column: span 2; }
         .widget.half-width { grid-column: span 1; }
 
-        .widget-title { color: #888; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
-        .kpi-value { font-size: 42px; font-weight: bold; color: #00F0FF; text-shadow: 0 0 15px rgba(0, 240, 255, 0.4); }
-        .chart-wrapper { position: relative; height: 250px; width: 100%; flex-grow: 1; }
+        .widget-title {
+            color: #888;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+        
+        .kpi-value {
+            font-size: 42px;
+            font-weight: bold;
+            color: #00F0FF;
+            text-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 250px;
+            width: 100%;
+            flex-grow: 1;
+        }
 
         /* LIGHT MODE OVERRIDES */
         body.light-mode { background-color: #e8ecef; }
-        body.light-mode .widget { background: rgba(255, 255, 255, 0.9); border-color: #ddd; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05); }
+        body.light-mode .widget {
+            background: rgba(255, 255, 255, 0.9);
+            border-color: #ddd;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+        }
         body.light-mode .widget:hover { border-color: #007BFF; }
         body.light-mode .widget-title { color: #555; }
         body.light-mode .kpi-value { color: #007BFF; text-shadow: none; }
 
-        /* COMMAND BAR */
+        /* THE REST REMAINS SAME */
         #command-overlay {
             position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
             width: 60%; max-width: 800px; background: rgba(20, 20, 20, 0.8);
@@ -73,6 +96,7 @@
         }
         body.light-mode #command-overlay { background: rgba(255, 255, 255, 0.9); border-color: #007BFF; }
         
+        /* 🎤 MIC BUTTON STYLE */
         #mic-btn { background: transparent; border: none; color: #00F0FF; font-size: 24px; cursor: pointer; transition: 0.3s; padding: 0 5px; }
         #mic-btn:hover { transform: scale(1.1); }
         body.light-mode #mic-btn { color: #007BFF; }
@@ -86,7 +110,6 @@
         #status-text { position: absolute; top: 30px; left: 50%; transform: translateX(-50%); color: #00F0FF; font-size: 18px; letter-spacing: 2px; text-transform: uppercase; z-index: 100; display: none; }
         body.light-mode #status-text { color: #007BFF; }
 
-        /* AI INSIGHT CARD (LEFT PANEL) */
         #ai-card {
             position: absolute; top: 30px; left: 30px; bottom: 120px;
             background: rgba(10, 15, 25, 0.85); backdrop-filter: blur(8px);
@@ -96,7 +119,6 @@
         }
         body.light-mode #ai-card { background: rgba(255,255,255,0.9); border-color: #007BFF; color: #333; }
 
-        /* TOP BUTTONS */
         .top-btn { position: absolute; top: 20px; background: rgba(0, 0, 0, 0.5); border: 1px solid #ffaa00; color: #ffaa00; padding: 8px 16px; border-radius: 4px; font-size: 14px; font-weight: bold; cursor: pointer; z-index: 1000; transition: 0.3s; backdrop-filter: blur(5px); }
         .top-btn:hover { background: #ffaa00; color: #000; }
         #theme-btn { right: 160px; border-color: #00F0FF; color: #00F0FF; }
@@ -105,7 +127,7 @@
         body.light-mode #theme-btn:hover { background: #007BFF; color: #fff; }
         #back-btn { right: 20px; }
 
-        /* ACTION BUTTON IN AI CARD */
+        /* 🔥 SMART ACTION BUTTON 🔥 */
         .action-btn {
             background: linear-gradient(45deg, #FF0055, #FFAA00);
             border: none; color: white; padding: 15px; font-size: 16px;
@@ -114,9 +136,6 @@
             box-shadow: 0 4px 15px rgba(255, 0, 85, 0.4);
         }
         .action-btn:hover { opacity: 0.9; transform: scale(1.02); }
-        
-        /* SPINNER ANIMATION FOR MODAL */
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
     </style>
 </head>
@@ -134,30 +153,19 @@
     </div>
 
     <div id="dashboard-container">
-        </div>
+    </div>
 
     <div id="command-overlay">
         <button id="mic-btn" onclick="startVoiceRecognition()" title="Speak to AI">🎤</button>
-        <input type="text" id="cmd-input" placeholder="Ask AI (Type or Speak): Compare top 5 suppliers..." autocomplete="off" onkeypress="handleEnter(event)">
+        <input type="text" id="cmd-input" placeholder="Ask AI (Type or Speak)..." autocomplete="off" onkeypress="handleEnter(event)">
         <button id="cmd-btn" onclick="askAI()">Generate</button>
-    </div>
-
-    <div id="action-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); backdrop-filter: blur(10px); z-index: 2000; justify-content: center; align-items: center;">
-        <div style="background: rgba(15, 20, 30, 0.9); border: 1px solid #00F0FF; padding: 30px; border-radius: 15px; width: 400px; text-align: center; box-shadow: 0 0 30px rgba(0, 240, 255, 0.3);">
-            <h2 id="modal-title" style="color: #00F0FF; margin-top: 0; letter-spacing: 1px;">ACTION TRIGGERED</h2>
-            <p id="modal-desc" style="color: #ccc; font-size: 16px; margin-bottom: 25px;">Processing your request in the background...</p>
-            <div style="margin: 20px 0;">
-                <div style="border: 4px solid rgba(0,240,255,0.1); border-top: 4px solid #00F0FF; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin: 0 auto;"></div>
-            </div>
-            <button onclick="closeModal()" style="background: linear-gradient(45deg, #FF0055, #FFAA00); border: none; color: white; padding: 12px 20px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; width: 100%; margin-top: 15px; box-shadow: 0 4px 15px rgba(255, 0, 85, 0.4);">CLOSE MODULE</button>
-        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 
     <script>
-        let chartInstances = [];
+        let chartInstances = []; // To store multiple charts
         window.lastAIData = null; 
         let isNight = true;
 
@@ -180,25 +188,21 @@
             return "₹" + (value >= 100000 ? (value/100000).toFixed(1) + "L" : value.toLocaleString('en-IN'));
         };
 
-        function handleEnter(e) {
-            if(e.key === 'Enter') askAI();
-        }
-
         // ==========================================
         // 🎙️ VOICE RECOGNITION ENGINE
         // ==========================================
         function startVoiceRecognition() {
             const inputField = document.getElementById('cmd-input');
             const micBtn = document.getElementById('mic-btn');
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SpeechRecognition) {
                 alert("Bhai, aapka browser Voice Search support nahi karta. Chrome use karein.");
                 return;
             }
 
             const recognition = new SpeechRecognition();
-            recognition.lang = 'en-IN'; 
+            recognition.lang = 'en-IN'; // English-India (Hinglish ke liye bhi kaam karta hai)
             recognition.interimResults = false;
 
             recognition.onstart = function() {
@@ -211,7 +215,7 @@
                 const transcript = event.results[0][0].transcript;
                 inputField.value = transcript;
                 inputField.placeholder = "Ask AI (Type or Speak)...";
-                askAI(); 
+                askAI(); // Automatically AI ko bhej do
             };
 
             recognition.onerror = function() {
@@ -227,35 +231,19 @@
         }
 
         // ==========================================
-        // 🪟 SMART MODAL ACTION LOGIC
+        // ⚡ REAL ACTION EXECUTION LOGIC
         // ==========================================
         function executeAction(payload) {
             console.log("Triggering Real Action:", payload);
-            const modal = document.getElementById('action-modal');
-            const title = document.getElementById('modal-title');
-            const desc = document.getElementById('modal-desc');
             
-            let formattedAction = payload.replace(/_/g, ' ').toUpperCase();
-            title.innerText = formattedAction;
-            
-            if(payload.includes("supplier") || payload.includes("payment")) {
-                desc.innerText = "Fetching payment ledgers and generating reports in the background...";
-            } else if(payload.includes("purchase_order") || payload.includes("po") || payload.includes("stock")) {
-                desc.innerText = "Generating Smart PO Drafts based on AI inventory analysis...";
+            // Agar AI ne 'create_purchase_order' bheja hai toh asli ERP page par le jao
+            if(payload === "create_purchase_order" || payload === "review_stock_levels" || payload === "draft_po") {
+                window.location.href = "/purchase-order/create"; 
             } else {
-                desc.innerText = "Executing AI Command safely in the ERP background...";
+                alert("Action Initiated: " + payload);
             }
-            
-            modal.style.display = 'flex'; 
         }
 
-        function closeModal() {
-            document.getElementById('action-modal').style.display = 'none';
-        }
-
-        // ==========================================
-        // 🧠 AI API CALL & UI BUILDER
-        // ==========================================
         function askAI() {
             const input = document.getElementById('cmd-input').value;
             if (!input) return;
@@ -263,7 +251,7 @@
             document.getElementById('status-text').style.display = 'block';
             document.getElementById('status-text').innerText = "Designing Dashboard Blueprint...";
 
-            fetch('https://love14-mewar-erp-bot.hf.space/api/generate-ui', {
+            fetch('http://localhost:8000/api/generate-ui', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ command: input })
@@ -285,14 +273,17 @@
         function buildGenerativeUI(blueprint) {
             const container = document.getElementById('dashboard-container');
             
+            // 1. Destroy old charts & clear container
             chartInstances.forEach(chart => chart.destroy());
             chartInstances = [];
             container.innerHTML = ""; 
 
+            // 2. Set AI Insights (Left Panel)
             document.getElementById('ai-card').style.display = 'block';
             document.getElementById('card-title').innerText = blueprint.dashboard_title || "Dashboard";
             document.getElementById('ai-insight-text').innerText = blueprint.ai_insights || "Here is your generated data.";
 
+            // 3. Set Action Button (Now using executeAction instead of alert)
             const actionContainer = document.getElementById('ai-action-container');
             if (blueprint.suggested_action && blueprint.suggested_action.label) {
                 actionContainer.innerHTML = `<button class="action-btn" onclick="executeAction('${blueprint.suggested_action.action_payload}')">⚡ ${blueprint.suggested_action.label}</button>`;
@@ -300,12 +291,14 @@
                 actionContainer.innerHTML = "";
             }
 
+            // 4. Generate Widgets dynamically!
             const layout = blueprint.grid_layout || [];
             
             layout.forEach((widget, index) => {
                 const widgetDiv = document.createElement('div');
                 widgetDiv.className = `widget ${widget.width === 'half' ? 'half-width' : 'full-width'}`;
                 
+                // --- KPI CARD ---
                 if (widget.component === 'kpi_card') {
                     let displayVal = typeof widget.value === 'number' ? currencyFormatter(widget.value) : widget.value;
                     widgetDiv.innerHTML = `
@@ -314,6 +307,7 @@
                     `;
                     container.appendChild(widgetDiv);
                 } 
+                // --- CHART COMPONENT ---
                 else if (widget.component === 'chart') {
                     const canvasId = `chart-canvas-${index}`;
                     widgetDiv.innerHTML = `
@@ -328,6 +322,7 @@
             });
         }
 
+        // Helper function to draw charts inside the dynamic canvas
         function drawChart(canvasId, widgetData) {
             const ctx = document.getElementById(canvasId).getContext('2d');
             
@@ -336,7 +331,7 @@
             const activeColors = isNight ? chartColorsNight : chartColorsDay;
 
             let config = {
-                type: widgetData.chart_type === 'metric' ? 'bar' : widgetData.chart_type, 
+                type: widgetData.chart_type === 'metric' ? 'bar' : widgetData.chart_type, // fallback metric to bar
                 data: {
                     labels: widgetData.labels,
                     datasets: [{
@@ -353,7 +348,7 @@
                     maintainAspectRatio: false,
                     plugins: { 
                         legend: { display: widgetData.chart_type === 'pie' ? true : false, position: 'right' },
-                        datalabels: { color: isNight?'#fff':'#000', font: {weight: 'bold'}, formatter: (val) => typeof val === 'number' ? val.toLocaleString('en-IN') : val }
+                        datalabels: { color: isNight?'#fff':'#000', font: {weight: 'bold'}, formatter: (val) => val.toLocaleString('en-IN') }
                     },
                     scales: widgetData.chart_type === 'pie' ? {} : {
                         x: { grid: { display: false }, ticks: { color: isNight?'#888':'#555' } },

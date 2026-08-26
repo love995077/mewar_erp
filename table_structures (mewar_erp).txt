@@ -1,0 +1,631 @@
+CREATE TABLE `categories` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `is_delete` int(6) DEFAULT 0,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `consumptions` (
+  `id` int(11) NOT NULL,
+  `request_slips_id` int(11) NOT NULL,
+  `transaction_date` timestamp NULL DEFAULT NULL,
+  `created_by` int(11) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `rs_row_id` int(11) NOT NULL,
+  `inventory_id` int(11) DEFAULT NULL,
+  `machine_id` int(11) DEFAULT NULL,
+  `unit` varchar(255) NOT NULL,
+  `quantity` decimal(10,0) DEFAULT NULL,
+  `height` decimal(10,0) DEFAULT NULL,
+  `width` decimal(10,0) DEFAULT NULL,
+  `project_id` int(11) DEFAULT NULL,
+  `remark` text DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `departments` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `department_name` varchar(255) NOT NULL,
+  `status` tinyint(4) NOT NULL DEFAULT 0,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `failed_jobs` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `uuid` varchar(255) NOT NULL,
+  `connection` text NOT NULL,
+  `queue` text NOT NULL,
+  `payload` longtext NOT NULL,
+  `exception` longtext NOT NULL,
+  `failed_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `firms` (
+  `id` int(11) NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `phone` varchar(20) DEFAULT NULL,
+  `address` text DEFAULT NULL,
+  `email` varchar(255) DEFAULT NULL,
+  `website` varchar(255) DEFAULT NULL,
+  `gst_no` varchar(255) DEFAULT NULL,
+  `pan` varchar(255) DEFAULT NULL,
+  `logo` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `grns` (
+  `id` int(11) NOT NULL,
+  `grn_number` varchar(50) DEFAULT NULL,
+  `purchase_order_id` int(11) NOT NULL,
+  `grn_date` date NOT NULL,
+  `invoice_no` varchar(50) DEFAULT NULL,
+  `remarks` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `grn_items` (
+  `id` int(11) NOT NULL,
+  `grn_id` int(11) NOT NULL,
+  `inventory_id` int(11) NOT NULL,
+  `received_qty` decimal(12,2) NOT NULL,
+  `accepted_qty` decimal(12,2) DEFAULT NULL,
+  `rejected_qty` decimal(12,2) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `placement` varchar(255) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `inventories` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `opening_quantity` decimal(10,2) DEFAULT NULL,
+  `min_quantity` decimal(50,0) NOT NULL,
+  `unit_id` bigint(20) UNSIGNED DEFAULT NULL,
+  `unit` varchar(50) NOT NULL,
+  `model` text DEFAULT NULL,
+  `category_id` bigint(50) DEFAULT NULL,
+  `grade` varchar(50) DEFAULT NULL,
+  `height` int(50) DEFAULT NULL,
+  `width` int(50) DEFAULT NULL,
+  `length` decimal(15,2) DEFAULT 0.00,
+  `thikness` int(50) DEFAULT NULL,
+  `is_deleted` tinyint(1) NOT NULL DEFAULT 0,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `opening_stock` varchar(11) DEFAULT NULL,
+  `type` varchar(255) DEFAULT NULL,
+  `classification` enum('FINISH','SEMI_FINISH') DEFAULT NULL,
+  `placement` varchar(255) DEFAULT NULL,
+  `composition` varchar(255) DEFAULT NULL,
+  `outer_diameter` varchar(255) DEFAULT NULL,
+  `inner_diameter` varchar(255) DEFAULT NULL,
+  `no_of_coil` int(11) NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `issue_slips` (
+  `id` int(20) NOT NULL,
+  `issue_slip_no` varchar(255) NOT NULL,
+  `project_id` int(8) NOT NULL,
+  `requisition_slip_id` int(11) NOT NULL,
+  `transaction_date` date NOT NULL,
+  `department_id` int(20) DEFAULT NULL,
+  `employee_id` int(20) NOT NULL,
+  `total_req_qty` decimal(15,2) NOT NULL,
+  `total_issue_qty` decimal(15,2) NOT NULL,
+  `total_pending_qty` decimal(15,2) NOT NULL,
+  `comment` text DEFAULT NULL,
+  `created_on` timestamp NOT NULL DEFAULT current_timestamp(),
+  `created_by` tinyint(4) NOT NULL,
+  `edited_by` tinyint(4) DEFAULT NULL,
+  `edited_on` timestamp NULL DEFAULT NULL ON UPDATE current_timestamp(),
+  `flag` tinyint(4) NOT NULL DEFAULT 1,
+  `status` varchar(255) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+CREATE TABLE `issue_slip_rows` (
+  `id` int(20) NOT NULL,
+  `issue_slip_id` int(20) NOT NULL,
+  `requisition_slip_row_id` int(11) NOT NULL,
+  `item_id` int(20) NOT NULL,
+  `quantity` decimal(15,2) NOT NULL,
+  `description` text DEFAULT NULL,
+  `status` varchar(55) DEFAULT NULL,
+  `pr_status` tinyint(1) NOT NULL DEFAULT 0,
+  `machine_id` bigint(20) DEFAULT NULL,
+  `order_qty` decimal(10,0) DEFAULT NULL,
+  `issue_qty` decimal(10,0) DEFAULT NULL,
+  `pending_qty` varchar(255) DEFAULT NULL,
+  `pr_machining_status` tinyint(4) DEFAULT 0,
+  `supplier_id` int(11) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+CREATE TABLE `job_cards` (
+  `id` bigint(15) NOT NULL,
+  `transaction_date` date NOT NULL,
+  `job_card_no` varchar(50) NOT NULL,
+  `priority` varchar(50) NOT NULL,
+  `status` varchar(50) NOT NULL DEFAULT 'PENDING',
+  `vendor_id` int(10) DEFAULT NULL,
+  `employee_id` int(11) DEFAULT NULL,
+  `created_by` int(11) DEFAULT NULL,
+  `total_qty` decimal(10,2) NOT NULL,
+  `pending_qty` decimal(10,2) NOT NULL,
+  `total_received_qty` int(11) DEFAULT NULL,
+  `completion_date` date DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `completed_at` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `job_card_rows` (
+  `id` bigint(15) NOT NULL,
+  `job_card_id` int(11) NOT NULL,
+  `issue_slip_row_id` int(11) DEFAULT NULL,
+  `item_id` int(11) NOT NULL,
+  `qty` decimal(10,2) NOT NULL,
+  `item_pending_qty` int(11) NOT NULL DEFAULT 0,
+  `received_qty` int(11) NOT NULL DEFAULT 0,
+  `completion_date` date DEFAULT NULL,
+  `status` varchar(50) NOT NULL DEFAULT 'MACHINING',
+  `description` varchar(255) DEFAULT NULL,
+  `supplier_id` int(11) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `menus` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `icon` varchar(255) DEFAULT NULL,
+  `menu_id` bigint(20) UNSIGNED DEFAULT NULL,
+  `route` varchar(255) DEFAULT NULL,
+  `sort_order` int(11) NOT NULL DEFAULT 0,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `menu_permission` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `menu_id` bigint(20) UNSIGNED NOT NULL,
+  `permission_id` bigint(20) UNSIGNED NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `migrations` (
+  `id` int(10) UNSIGNED NOT NULL,
+  `migration` varchar(255) NOT NULL,
+  `batch` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `notifications` (
+  `id` int(11) NOT NULL,
+  `notify_id` int(11) DEFAULT NULL,
+  `role_id` int(11) DEFAULT NULL,
+  `read_at` tinyint(4) NOT NULL DEFAULT 0,
+  `data` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`data`)),
+  `is_delete` tinyint(4) NOT NULL DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `password_reset_tokens` (
+  `email` varchar(255) NOT NULL,
+  `token` varchar(255) NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `permissions` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `display_name` varchar(255) NOT NULL,
+  `method` varchar(10) NOT NULL DEFAULT 'GET',
+  `route_name` varchar(255) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `personal_access_tokens` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `tokenable_type` varchar(255) NOT NULL,
+  `tokenable_id` bigint(20) UNSIGNED NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `token` varchar(64) NOT NULL,
+  `abilities` text DEFAULT NULL,
+  `last_used_at` timestamp NULL DEFAULT NULL,
+  `expires_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `placements` (
+  `id` int(11) NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `po_status_logs` (
+  `id` int(11) NOT NULL,
+  `purchase_order_id` int(11) DEFAULT NULL,
+  `status` varchar(50) DEFAULT NULL,
+  `changed_by` int(11) DEFAULT NULL,
+  `changed_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `remarks` text DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `po_transactions` (
+  `id` int(11) NOT NULL,
+  `po_id` int(11) NOT NULL,
+  `pay_amount` decimal(15,2) NOT NULL,
+  `transaction_date` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `products` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `is_deleted` tinyint(1) NOT NULL DEFAULT 0,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `estimation_budget` int(50) DEFAULT NULL,
+  `estimation_duration` int(50) DEFAULT NULL,
+  `start_date` date DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `product_items` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `product_id` bigint(20) UNSIGNED NOT NULL,
+  `inventory_id` bigint(20) UNSIGNED NOT NULL,
+  `quantity` decimal(12,2) NOT NULL DEFAULT 1.00,
+  `is_deleted` tinyint(1) NOT NULL DEFAULT 0,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `projects` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `status` varchar(255) NOT NULL DEFAULT 'new',
+  `priority` varchar(55) NOT NULL DEFAULT 'NORMAL',
+  `deadline` date DEFAULT NULL,
+  `created_by` bigint(20) UNSIGNED DEFAULT NULL,
+  `is_deleted` tinyint(1) NOT NULL DEFAULT 0,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `start_date` date DEFAULT NULL,
+  `end_date` date DEFAULT NULL,
+  `completion_date` timestamp NULL DEFAULT NULL,
+  `budget` int(50) NOT NULL,
+  `comment` text DEFAULT NULL,
+  `refurbish` int(11) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `project_item` (
+  `id` int(11) NOT NULL,
+  `project_id` int(11) DEFAULT NULL,
+  `inventory_id` int(11) DEFAULT NULL,
+  `quantity` int(11) DEFAULT NULL,
+  `length` varchar(255) DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `project_products` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `project_id` bigint(20) UNSIGNED NOT NULL,
+  `product_id` bigint(20) UNSIGNED NOT NULL,
+  `quantity` int(11) NOT NULL DEFAULT 1,
+  `status` varchar(50) DEFAULT NULL,
+  `is_deleted` tinyint(1) NOT NULL DEFAULT 0,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `purchase_orders` (
+  `id` int(11) NOT NULL,
+  `po_number` varchar(50) NOT NULL,
+  `supplier_id` int(11) DEFAULT NULL,
+  `po_date` date NOT NULL,
+  `expected_delivery` date DEFAULT NULL,
+  `total_qty` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `subtotal` decimal(15,2) DEFAULT NULL,
+  `subtotal_discount_amount` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `tax_amount` decimal(15,2) DEFAULT NULL,
+  `total_amount` decimal(15,2) DEFAULT NULL,
+  `loading_cutting_charges` decimal(15,2) DEFAULT 0.00,
+  `freight_charges` decimal(15,2) DEFAULT 0.00,
+  `remaining_amount` decimal(15,2) DEFAULT 0.00,
+  `final_discount` decimal(15,2) DEFAULT NULL,
+  `advance_amount` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `balance_amount` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `status` enum('Draft','Approved','Partially Received','Completed','Cancelled','Submitted') DEFAULT 'Draft',
+  `delivery_status` varchar(255) DEFAULT NULL,
+  `firm` int(11) DEFAULT NULL,
+  `remarks` text DEFAULT NULL,
+  `terms_and_conditions` text DEFAULT NULL,
+  `created_by` int(11) DEFAULT NULL,
+  `approved_by` int(11) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `completed_at` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `purchase_order_items` (
+  `id` bigint(15) NOT NULL,
+  `purchase_order_id` int(11) NOT NULL,
+  `pr_item_id` int(11) DEFAULT NULL,
+  `hsn` varchar(255) DEFAULT NULL,
+  `inventory_id` bigint(20) NOT NULL,
+  `ordered_qty` decimal(15,2) NOT NULL,
+  `received_qty` decimal(15,2) DEFAULT NULL,
+  `taxable_total` decimal(15,2) DEFAULT NULL,
+  `discount` decimal(11,2) NOT NULL DEFAULT 0.00,
+  `discount_amount` decimal(15,2) NOT NULL DEFAULT 0.00,
+  `tax_type` varchar(255) DEFAULT NULL,
+  `tax_amount` decimal(15,2) NOT NULL,
+  `unit_price` decimal(15,2) NOT NULL,
+  `tax_percent` decimal(15,2) NOT NULL,
+  `line_total` decimal(15,2) NOT NULL,
+  `item_not` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `purchase_requests` (
+  `id` bigint(20) NOT NULL,
+  `pr_no` varchar(50) NOT NULL,
+  `request_date` date NOT NULL,
+  `requested_by` bigint(20) NOT NULL,
+  `department_id` bigint(20) DEFAULT NULL,
+  `priority` enum('LOW','NORMAL','HIGH','URGENT') DEFAULT 'NORMAL',
+  `status` enum('DRAFT','SUBMITTED','APPROVED','REJECTED','PARTIALLY_ORDERED','ORDERED','CLOSED','HOLD') DEFAULT 'DRAFT',
+  `remarks` text DEFAULT NULL,
+  `total_qty` decimal(15,2) NOT NULL,
+  `approved_by` bigint(20) DEFAULT NULL,
+  `approved_at` datetime DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `purchase_request_approvals` (
+  `id` bigint(20) NOT NULL,
+  `purchase_request_id` bigint(20) NOT NULL,
+  `approver_id` bigint(20) NOT NULL,
+  `approval_level` int(11) NOT NULL,
+  `status` enum('PENDING','APPROVED','REJECTED') DEFAULT 'PENDING',
+  `remarks` varchar(255) DEFAULT NULL,
+  `action_date` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `purchase_request_items` (
+  `id` bigint(20) NOT NULL,
+  `purchase_request_id` bigint(20) NOT NULL,
+  `issue_slip_row_id` int(11) DEFAULT NULL,
+  `item_id` bigint(20) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `requested_qty` decimal(12,2) NOT NULL,
+  `approved_qty` decimal(12,2) DEFAULT 0.00,
+  `ordered_qty` decimal(12,2) DEFAULT 0.00,
+  `uom` varchar(20) NOT NULL,
+  `required_date` date DEFAULT NULL,
+  `status` enum('PENDING','APPROVED','REJECTED','ORDERED','PARTIALLY_ORDERED') DEFAULT 'PENDING',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `exited_qty` int(11) NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `purchase_request_po_map` (
+  `id` bigint(20) NOT NULL,
+  `purchase_request_item_id` bigint(20) NOT NULL,
+  `purchase_order_item_id` bigint(20) NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `request_slip_histories` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `request_slip_id` bigint(20) UNSIGNED NOT NULL,
+  `action_by` bigint(20) UNSIGNED NOT NULL,
+  `action` varchar(50) NOT NULL,
+  `status` varchar(255) DEFAULT NULL,
+  `remarks` text DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `hold_by` int(11) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `requisition_slips` (
+  `id` int(20) NOT NULL,
+  `rs_id` int(11) NOT NULL,
+  `requisition_slip_no` varchar(20) NOT NULL,
+  `store_rs` tinyint(4) NOT NULL,
+  `transaction_date` date NOT NULL,
+  `employee_id` int(11) NOT NULL,
+  `project_id` int(8) DEFAULT NULL,
+  `machine_id` int(10) DEFAULT NULL,
+  `lot_no` text DEFAULT NULL,
+  `batch_no` text DEFAULT NULL,
+  `department_id` int(11) DEFAULT NULL,
+  `purpose` text DEFAULT NULL,
+  `total_qty` decimal(15,2) NOT NULL,
+  `comment` text DEFAULT NULL,
+  `created_on` timestamp NOT NULL DEFAULT current_timestamp(),
+  `created_by` tinyint(4) NOT NULL,
+  `edited_by` tinyint(4) DEFAULT NULL,
+  `edited_on` timestamp NULL DEFAULT NULL ON UPDATE current_timestamp(),
+  `status` enum('Pending','Approved','Rejected','Hold','Approved HOD') NOT NULL DEFAULT 'Pending',
+  `approved_by` int(11) DEFAULT NULL,
+  `approved_date` date DEFAULT NULL,
+  `approve_comment` text DEFAULT NULL,
+  `approved_on` datetime DEFAULT NULL,
+  `rejected_by` int(11) DEFAULT NULL,
+  `rejected_date` datetime DEFAULT NULL,
+  `rejected_reason` text DEFAULT NULL,
+  `admin_approve_status` enum('Pending','Approved','Rejected') NOT NULL DEFAULT 'Pending',
+  `admin_id` int(10) DEFAULT NULL,
+  `admin_action_date` date DEFAULT NULL,
+  `admin_action_remark` text DEFAULT NULL,
+  `po_flag` tinyint(3) DEFAULT NULL,
+  `issue_completed` int(5) DEFAULT NULL,
+  `flag` tinyint(4) DEFAULT NULL,
+  `is_exited` int(11) NOT NULL DEFAULT 0,
+  `hold_by` int(11) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+CREATE TABLE `requisition_slip_rows` (
+  `id` int(20) NOT NULL,
+  `requisition_slip_id` int(20) NOT NULL,
+  `machine_id` bigint(20) UNSIGNED DEFAULT NULL,
+  `item_id` int(20) NOT NULL,
+  `unit_id` int(11) DEFAULT NULL,
+  `quantity` decimal(15,2) NOT NULL,
+  `order_qty` decimal(15,2) DEFAULT NULL,
+  `issue_qty` decimal(15,2) DEFAULT NULL,
+  `pending_qty` decimal(15,2) NOT NULL,
+  `order_pending_qty` decimal(15,2) NOT NULL,
+  `description` varchar(300) DEFAULT NULL,
+  `status` varchar(255) DEFAULT NULL,
+  `exited_qty` int(11) DEFAULT NULL,
+  `issued_qty` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `consumed_qty` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `issued_height` decimal(10,2) DEFAULT NULL,
+  `issued_width` decimal(10,2) DEFAULT NULL,
+  `consumed_height` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `consumed_width` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `is_completed` tinyint(1) NOT NULL DEFAULT 0,
+  `unit` int(11) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+CREATE TABLE `requisition_slip_row_pieces` (
+  `id` int(11) NOT NULL,
+  `item_id` int(11) NOT NULL,
+  `requisition_slip_row_id` int(11) NOT NULL,
+  `issued_height` decimal(12,2) DEFAULT NULL,
+  `issued_width` decimal(12,2) DEFAULT NULL,
+  `issued_qty` decimal(12,2) DEFAULT 0.00,
+  `consumed_height` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `consumed_width` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `consumed_qty` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `shape` varchar(255) DEFAULT NULL,
+  `is_completed` tinyint(4) NOT NULL DEFAULT 0,
+  `send_hod` int(11) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `roles` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `role_permission` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `role_id` bigint(20) UNSIGNED NOT NULL,
+  `permission_id` bigint(20) UNSIGNED NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `stock_transactions` (
+  `id` bigint(15) NOT NULL,
+  `project_id` int(10) DEFAULT NULL,
+  `machine_id` int(10) DEFAULT NULL,
+  `inventory_id` int(10) NOT NULL,
+  `txn_date` date NOT NULL,
+  `txn_type` enum('In','Out') NOT NULL,
+  `quantity` decimal(15,2) NOT NULL,
+  `ref_type` varchar(50) NOT NULL COMMENT ' -- ''PO'', ''ISSUE'', ''ADJUSTMENT'', etc.',
+  `ref_no` varchar(50) DEFAULT NULL,
+  `issued_to` int(8) DEFAULT NULL,
+  `issue_by` int(10) DEFAULT NULL,
+  `requision_id` int(10) DEFAULT NULL,
+  `issue_slip_id` int(10) DEFAULT NULL,
+  `supplier_id` int(11) DEFAULT NULL,
+  `vendor_id` int(11) DEFAULT NULL,
+  `remarks` varchar(255) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `suppliers` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `category` varchar(255) NOT NULL,
+  `registration_date` date DEFAULT NULL,
+  `supplier_name` varchar(255) NOT NULL,
+  `supplier_code` int(11) NOT NULL,
+  `contact_person` varchar(255) DEFAULT NULL,
+  `email` varchar(255) DEFAULT NULL,
+  `state` varchar(255) DEFAULT NULL,
+  `city` varchar(255) DEFAULT NULL,
+  `mobile` varchar(255) DEFAULT NULL,
+  `gst_registered` tinyint(1) DEFAULT 1,
+  `gstin` varchar(255) DEFAULT NULL,
+  `pan` varchar(255) DEFAULT NULL,
+  `supplier_address` text DEFAULT NULL,
+  `bank_name` varchar(255) DEFAULT NULL,
+  `branch_address` varchar(255) DEFAULT NULL,
+  `ifsc` varchar(255) DEFAULT NULL,
+  `account_number` varchar(255) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `supplier_inventories` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `supplier_id` bigint(20) UNSIGNED NOT NULL,
+  `inventory_id` bigint(20) UNSIGNED NOT NULL,
+  `quantity` int(11) NOT NULL DEFAULT 0,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `units` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `is_deleted` tinyint(1) NOT NULL DEFAULT 0,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `users` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `email` varchar(255) NOT NULL,
+  `status` varchar(255) DEFAULT NULL,
+  `date` date DEFAULT NULL,
+  `is_delete` tinyint(1) NOT NULL DEFAULT 0,
+  `email_verified_at` timestamp NULL DEFAULT NULL,
+  `password` varchar(255) NOT NULL,
+  `address` text DEFAULT NULL,
+  `role_id` bigint(20) UNSIGNED DEFAULT NULL,
+  `country_code` varchar(10) DEFAULT NULL,
+  `mobile` varchar(20) DEFAULT NULL,
+  `remember_token` varchar(100) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `image` varchar(255) DEFAULT NULL,
+  `department_id` int(50) DEFAULT NULL,
+  `authority_id` int(11) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `vendors` (
+  `id` int(11) NOT NULL,
+  `name` varchar(50) NOT NULL,
+  `mobile_no` varchar(15) NOT NULL,
+  `email` varchar(100) DEFAULT NULL,
+  `address` text DEFAULT NULL,
+  `city` varchar(50) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `vendor_payments` (
+  `id` int(11) NOT NULL,
+  `vendor_id` int(11) DEFAULT NULL,
+  `purchase_order_id` int(11) DEFAULT NULL,
+  `amount` decimal(12,2) DEFAULT NULL,
+  `payment_date` date DEFAULT NULL,
+  `payment_mode` varchar(50) DEFAULT NULL,
+  `reference_no` varchar(100) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+

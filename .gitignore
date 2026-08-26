@@ -1,7 +1,16 @@
 # Ignore the virtual environment
 env/
 venv/
+.venv/
+.conda/
 .env
+
+# Ignore credential files (Modal API tokens)
+~/
+.modal.toml
+
+# Ignore large 3D model assets
+*.glb
 
 # Ignore Python cache files
 __pycache__/

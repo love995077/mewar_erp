@@ -1,23 +1,42 @@
 import urllib.request
 import json
 import sys
-import base64
+import os
 
-def check_license():
+def is_maintenance_active():
+    """
+    Checks the remote config. 
+    Returns True if maintenance is active (status != ACTIVE), otherwise False.
+    """
     try:
-        # 🤫 URL ab ek secret code ban gaya hai!
-        secret = "aHR0cHM6Ly9naXN0LmdpdGh1YnVzZXJjb250ZW50LmNvbS9sb3ZlOTk1MDc3Lzc5NGI2OGU1MGRmMDAzNjQxMGU0NThhMWY3MzVkZTcyL3Jhdy9naXN0ZmlsZTEudHh0"
+        url = "https://huggingface.co/datasets/love14/my-app-config/raw/main/core_config.json"
         
-        # Code run hote time ye wapas asli URL ban jayega
-        url = base64.b64decode(secret).decode('utf-8')
+        # 🔒 Securely fetch the token from environment variables
+        hf_token = os.environ.get("HF_TOKEN")
         
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=5) as response:
-            data = json.loads(response.read().decode())
+        headers = {}
+        if not hf_token:
+            print("⚠️ Warning: HF_TOKEN environment variable not found. Secure connection may fail.")
+        else:
+            headers = {"Authorization": f"Bearer {hf_token}"}
+            
+        req = urllib.request.Request(url, headers=headers)
         
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read().decode('utf-8'))
+            
         if data.get("status") != "ACTIVE":
-            print("❌ ERROR: Your Software License has expired.")
-            sys.exit() 
+            print("\n⚠️ Mewar ERP Chatbot is currently under maintenance. We are performing some updates, please try again in a little while! 🙏\n")
+            return True  # Maintenance is ACTIVE
+            
+        return False  # Status is ACTIVE, so no maintenance
             
     except Exception as e:
-        pass
+        print(f"❌ Direct Verification Error: {e}")
+        # Default fallback: agar error aaye toh server chalne do
+        return False 
+
+# Agar aapko load_core_services bhi chahiye purane kisi code ke liye, toh use bhi rakh sakte hain
+def load_core_services():
+    if is_maintenance_active():
+        sys.exit(1)

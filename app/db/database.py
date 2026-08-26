@@ -251,37 +251,27 @@ import urllib.parse
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
 
-# 1. Load environment variables from .env (for local) or Vercel Settings (for live)
-load_dotenv()
+load_dotenv()  # Load environment variables from .env file
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+# 1. Environment variables se details uthayein
+DB_USER = os.getenv("DB_USER", "default_user")
+DB_PASSWORD_RAW = os.getenv("DB_PASSWORD", "")
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_NAME = os.getenv("DB_NAME", "default_db")
 
-# 2. Setup the Remote Connection if DATABASE_URL is missing in .env
-if not DATABASE_URL:
-    user = "u512872665_user"
-    # Adding the @23607 to the end of the password!
-    password = urllib.parse.quote_plus("a3nQyY7RT;G9")
-    host = "auth-db1830.hstgr.io"         
-    port = "3306"
-    # Using the database name from the senior's screenshot
-    dbname = "u512872665_db"         
-    
-    DATABASE_URL = f"mysql+pymysql://{user}:{password}@{host}:{port}/{dbname}?connect_timeout=60"
+# 2. 🚨 SABSE ZAROORI STEP: Password ko URL Encode karein (Special characters ke liye)
+DB_PASSWORD_ENCODED = urllib.parse.quote_plus(DB_PASSWORD_RAW)
 
-# 3. Create the engine with connection stability settings for remote hosts
-engine = create_engine(
-    DATABASE_URL, 
-    echo=False,           # Live will be noisy with echo=True, so set False. Set True locally if you want SQL logs.
-    pool_pre_ping=True, 
-    pool_recycle=280,      # 👈 for Hostinger 280`  
-    pool_size=5,           # Default connections limit
-    max_overflow=10        # Load badhne par extra connections
-)
+# 3. Ab safe password ke sath Database URL banayein
+SQLALCHEMY_DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD_ENCODED}@{DB_HOST}/{DB_NAME}"
 
+# 4. Engine setup (Baki code same rahega)
+engine = create_engine(SQLALCHEMY_DATABASE_URL, pool_pre_ping=True, pool_recycle=1800)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
 
-# 4. Dependency to get DB session
 def get_db():
     db = SessionLocal()
     try:

@@ -1,19 +1,12 @@
-from sqlalchemy import text
-from app.db.database import engine
+from openai import OpenAI
 
-def test_db():
-    print("⏳ Attempting to connect to the database...")
-    try:
-        # Try to open a connection
-        with engine.connect() as connection:
-            # Run a simple query to verify it works
-            result = connection.execute(text("SELECT VERSION()"))
-            version = result.fetchone()
-            print(f"✅ SUCCESS! Connected to MySQL Database.")
-            print(f"📊 Database Version: {version[0]}")
-    except Exception as e:
-        print(f"❌ FAILED TO CONNECT.")
-        print(f"Error Details: {e}")
+client = OpenAI(api_key="REDACTED-ROTATED-KEY")
 
-if __name__ == "__main__":
-    test_db()
+try:
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": "Hello"}]
+    )
+    print("✅ SUCCESS! Key ekdum sahi chal rahi hai!")
+except Exception as e:
+    print(f"❌ ERROR: {e}")

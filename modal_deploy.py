@@ -32,7 +32,7 @@ image = (
 )
 
 # 3. FastAPI ko Modal ke saath jodna
-@app.function(image=image,secrets=[modal.Secret.from_name("mewar_erp")])#,min_containers=1)
+@app.function(image=image,secrets=[modal.Secret.from_name("mewar-erp-backend")],min_containers=1)
 @modal.asgi_app()
 def serve():
     from app.main import app as fastapi_app

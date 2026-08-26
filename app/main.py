@@ -154,14 +154,17 @@
 import os
 import json
 import asyncio
+import time             # <-- NAYA IMPORT: PR Number generation ke liye
+import datetime         # <-- NAYA IMPORT: Date save karne ke liye
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import Session
-from sqlalchemy import text  # <-- NAYA IMPORT: Custom SQL queries chalane ke liye zaroori hai
-
+from sqlalchemy import text  
+from pydantic import BaseModel      # <-- NAYA IMPORT: Data Validation ke liye
+from typing import List, Optional   # <-- NAYA IMPORT: Lists handle karne ke liye
 
 # Database
 from app.db.database import get_db, SessionLocal
@@ -175,8 +178,6 @@ from app.routers.whatsapp import router as whatsapp_router
 from app.services.proactive_agent import run_proactive_workflow
 from app.routers.proactive_agent import router as agent_action_router
 from app.routers import gen_ui
-
-
 
 # ==========================================
 # 🔌 WEBSOCKET MANAGER (For 3D Dashboard)
@@ -248,24 +249,23 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Mewar ERP API", redirect_slashes=True, lifespan=lifespan)
 
 # ==========================================
-# 🛡️ CORS SETTINGS
+# 🛡️ CORS SETTINGS (UPDATED FOR LOCAL & LIVE)
 # ==========================================
-_cors_raw = os.getenv(
-    "CORS_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,null,*"
-).strip()
-
-if _cors_raw == "*":
-    allowed_origins = ["*"]
-    _allow_credentials = False
-else:
-    allowed_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
-    _allow_credentials = True
+# Yahan humne Local (5500) aur Live (HF Space) dono add kar diye hain
+allowed_origins = [
+    "http://127.0.0.1:5500",                 # Local Testing URL 1
+    "http://localhost:5500",                 # Local Testing URL 2
+    "http://localhost:5173",                 # Default Vue/React port
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",                 # Default Node port
+    "https://love14-mewar-erp-bot.hf.space", # Live Hugging Face Space
+    "null"
+]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=_allow_credentials,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -307,7 +307,7 @@ async def trigger_proactive_agent(db: Session = Depends(get_db)):
         return {"status": "error", "message": str(e)}
 
 # ==========================================
-# 📊 NEW: REAL-TIME KPI API FOR DASHBOARD
+# 📊 REAL-TIME KPI API FOR DASHBOARD
 # ==========================================
 @app.get("/api/kpi-stats")
 def get_kpi_stats(db: Session = Depends(get_db)):
@@ -326,58 +326,51 @@ def get_kpi_stats(db: Session = Depends(get_db)):
             text("SELECT COUNT(id) FROM purchase_orders WHERE DATE(created_at) = CURDATE()")
         ).scalar() or 0
 
-        # 3. Low Stock Items (Same advanced query used by Scanner Agent, but just counting rows)
+        # 3. Low Stock Items (MySQL 5.7 Compatible Subquery)
         low_stock_query = text("""
-            WITH RunningProjects AS (
-                SELECT id FROM projects WHERE status = 'in_progress'
-            ),
-            ReqUnion AS (
-                SELECT pi.inventory_id, SUM(CAST(pp.quantity AS SIGNED) * CAST(pi.quantity AS SIGNED)) as req
-                FROM RunningProjects p
-                JOIN project_products pp ON p.id = pp.project_id
-                JOIN product_items pi ON pp.product_id = pi.product_id
-                GROUP BY pi.inventory_id
-                UNION ALL
-                SELECT p_item.inventory_id, SUM(CAST(p_item.quantity AS SIGNED)) as req
-                FROM RunningProjects p
-                JOIN project_item p_item ON p.id = p_item.project_id
-                GROUP BY p_item.inventory_id
-            ),
-            TotalReq AS (
-                SELECT inventory_id, SUM(req) as total_req FROM ReqUnion GROUP BY inventory_id
-            ),
-            AllowedMachines AS (
-                SELECT DISTINCT machine_id FROM stock_transactions 
-                WHERE project_id IN (SELECT id FROM RunningProjects) AND machine_id IS NOT NULL
-            ),
-            Consumption AS (
-                SELECT inventory_id, SUM(quantity) as cons_qty
-                FROM stock_transactions
-                WHERE LOWER(txn_type) = 'out'
-                  AND (project_id IN (SELECT id FROM RunningProjects) OR machine_id IN (SELECT machine_id FROM AllowedMachines))
-                GROUP BY inventory_id
-            ),
-            AvailableStock AS (
-                SELECT inventory_id,
-                    (SUM(CASE WHEN LOWER(txn_type) = 'in' AND (LOWER(ref_type) != 'finish' OR ref_type IS NULL OR ref_type = '') THEN quantity ELSE 0 END)
-                    -
-                    SUM(CASE WHEN LOWER(txn_type) = 'out' AND (LOWER(ref_type) != 'machining' OR ref_type IS NULL OR ref_type = '') THEN quantity ELSE 0 END)) as total_avail
-                FROM stock_transactions GROUP BY inventory_id
-            ),
-            PendingPOs AS (
-                SELECT poi.inventory_id, SUM(poi.ordered_qty) as incoming_qty
-                FROM purchase_order_items poi
-                JOIN purchase_orders po ON poi.purchase_order_id = po.id
-                WHERE po.status IN ('Draft', 'Submitted', 'Approved', 'Pending') 
-                GROUP BY poi.inventory_id
-            )
             SELECT COUNT(*) FROM (
                 SELECT tr.inventory_id, 
                 ((COALESCE(tr.total_req, 0) - COALESCE(c.cons_qty, 0)) - COALESCE(a.total_avail, 0) - COALESCE(p_po.incoming_qty, 0)) as shortage 
-                FROM TotalReq tr 
-                LEFT JOIN Consumption c ON tr.inventory_id = c.inventory_id
-                LEFT JOIN AvailableStock a ON tr.inventory_id = a.inventory_id 
-                LEFT JOIN PendingPOs p_po ON tr.inventory_id = p_po.inventory_id
+                FROM (
+                    SELECT inventory_id, SUM(req) as total_req FROM (
+                        SELECT pi.inventory_id, SUM(CAST(pp.quantity AS SIGNED) * CAST(pi.quantity AS SIGNED)) as req
+                        FROM projects p
+                        JOIN project_products pp ON p.id = pp.project_id
+                        JOIN product_items pi ON pp.product_id = pi.product_id
+                        WHERE p.status = 'in_progress'
+                        GROUP BY pi.inventory_id
+                        UNION ALL
+                        SELECT p_item.inventory_id, SUM(CAST(p_item.quantity AS SIGNED)) as req
+                        FROM projects p
+                        JOIN project_item p_item ON p.id = p_item.project_id
+                        WHERE p.status = 'in_progress'
+                        GROUP BY p_item.inventory_id
+                    ) AS ReqUnion GROUP BY inventory_id
+                ) tr 
+                LEFT JOIN (
+                    SELECT inventory_id, SUM(quantity) as cons_qty
+                    FROM stock_transactions
+                    WHERE LOWER(txn_type) = 'out'
+                      AND (project_id IN (SELECT id FROM projects WHERE status = 'in_progress') OR machine_id IN (
+                          SELECT DISTINCT machine_id FROM stock_transactions 
+                          WHERE project_id IN (SELECT id FROM projects WHERE status = 'in_progress') AND machine_id IS NOT NULL
+                      ))
+                    GROUP BY inventory_id
+                ) c ON tr.inventory_id = c.inventory_id
+                LEFT JOIN (
+                    SELECT inventory_id,
+                        (SUM(CASE WHEN LOWER(txn_type) = 'in' AND (LOWER(ref_type) != 'finish' OR ref_type IS NULL OR ref_type = '') THEN quantity ELSE 0 END)
+                        -
+                        SUM(CASE WHEN LOWER(txn_type) = 'out' AND (LOWER(ref_type) != 'machining' OR ref_type IS NULL OR ref_type = '') THEN quantity ELSE 0 END)) as total_avail
+                    FROM stock_transactions GROUP BY inventory_id
+                ) a ON tr.inventory_id = a.inventory_id 
+                LEFT JOIN (
+                    SELECT poi.inventory_id, SUM(poi.ordered_qty) as incoming_qty
+                    FROM purchase_order_items poi
+                    JOIN purchase_orders po ON poi.purchase_order_id = po.id
+                    WHERE po.status IN ('Draft', 'Submitted', 'Approved', 'Pending') 
+                    GROUP BY poi.inventory_id
+                ) p_po ON tr.inventory_id = p_po.inventory_id
                 HAVING shortage > 0
             ) as shortage_table
         """)
@@ -392,17 +385,159 @@ def get_kpi_stats(db: Session = Depends(get_db)):
     except Exception as e:
         print("KPI Fetch Error:", e)
         return {"status": "error", "active_demands": 0, "low_stock_items": 0, "pos_today": 0}
-    
 
+# ==========================================
+# ⚡ NEW: AUTO-PR GENERATION API (CHATBOT INTEGRATION)
+# ==========================================
+class PRItemSchema(BaseModel):
+    item_name: str
+    qty: float
+
+class PRCreateSchema(BaseModel):
+    priority: Optional[str] = "NORMAL"
+    status: Optional[str] = "DRAFT"
+    requested_by: Optional[int] = 9  # 🟢 Default name set kiya
+    items: List[PRItemSchema]
+
+@app.post("/api/purchase_request/store")
+def store_purchase_request(payload: PRCreateSchema, db: Session = Depends(get_db)):
+    """
+    Yeh endpoint chatbot ke 'Generate PR' button se selected items ka data lega,
+    database mein ek nayi Purchase Request (PR) aur uske items save karega.
+    """
+    try:
+        # 1. Unique PR Number generate karna
+        last_pr = db.execute(text("SELECT pr_no FROM purchase_requests ORDER BY id DESC LIMIT 1")).fetchone()
+        if last_pr and last_pr[0]:
+            try:
+                last_num = int(last_pr[0].split('-')[-1])
+                new_pr_no = f"PR-{last_num + 1}"
+            except:
+                new_pr_no = f"PR-{int(time.time())}"
+        else:
+            new_pr_no = "PR-101"
+
+        request_date = datetime.date.today().strftime("%Y-%m-%d")
+        total_qty = sum(item.qty for item in payload.items)
+
+        # 2. Main `purchase_requests` table mein entry insert karna (WITH requested_by)
+        insert_pr_query = text("""
+            INSERT INTO purchase_requests (pr_no, request_date, requested_by, priority, status, total_qty, created_at, updated_at)
+            VALUES (:pr_no, :request_date, :requested_by, :priority, :status, :total_qty, NOW(), NOW())
+        """)
+        
+        db.execute(insert_pr_query, {
+            "pr_no": new_pr_no,
+            "request_date": request_date,
+            "requested_by": payload.requested_by,  # 🟢 Parameter pass kiya
+            "priority": payload.priority,
+            "status": payload.status,
+            "total_qty": total_qty
+        })
+        
+        # Abhi insert hui PR ki ID nikalna
+        pr_id_res = db.execute(text("SELECT LAST_INSERT_ID()")).fetchone()
+        pr_id = pr_id_res[0]
+
+        # 3. Har ek selected item ko `purchase_request_items` table mein dalna
+        for item in payload.items:
+            inv = db.execute(
+                text("SELECT id FROM inventories WHERE name LIKE :name AND is_deleted=0 LIMIT 1"),
+                {"name": f"%{item.item_name}%"}
+            ).fetchone()
+            
+            inventory_id = inv[0] if inv else 1
+
+            insert_item_query = text("""
+                INSERT INTO purchase_request_items 
+                (purchase_request_id, item_id, description, requested_qty, uom, status, created_at)
+                VALUES (:pr_id, :inv_id, :desc, :qty, 'Nos', 'Pending', NOW())
+            """)
+            
+            db.execute(insert_item_query, {
+                "pr_id": pr_id,
+                "inv_id": inventory_id,
+                "desc": item.item_name,
+                "qty": item.qty
+            })
+
+        db.commit()
+
+        print(f"✅ Success: Generated {new_pr_no} with {len(payload.items)} items!")
+        return {
+            "status": "success",
+            "message": "Purchase Request successfully generated!",
+            "pr_no": new_pr_no,
+            "pr_id": pr_id
+        }
+
+    except Exception as e:
+        db.rollback()
+        print(f"❌ PR Generation Error: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+
+
+@app.delete("/api/purchase_request/delete/{pr_no}")
+def delete_test_pr(pr_no: str, db: Session = Depends(get_db)):
+    """
+    Yeh API test ki hui PR ko safely database se uda degi.
+    Use karne ke liye: http://.../docs par jakar test kar sakte hain.
+    """
+    try:
+        # 1. Pehle check karo ki PR exist karti hai ya nahi
+        pr = db.execute(
+            text("SELECT id FROM purchase_requests WHERE pr_no = :pr_no"), 
+            {"pr_no": pr_no}
+        ).fetchone()
+        
+        if not pr:
+            return {"status": "error", "message": f"Bhai, {pr_no} database mein nahi mili!"}
+        
+        pr_id = pr[0]
+        
+        # 2. Pehle child table (items) se delete karo taaki Foreign Key error na aaye
+        db.execute(
+            text("DELETE FROM purchase_request_items WHERE purchase_request_id = :pr_id"), 
+            {"pr_id": pr_id}
+        )
+        
+        # 3. Fir main table se delete kar do
+        db.execute(
+            text("DELETE FROM purchase_requests WHERE id = :pr_id"), 
+            {"pr_id": pr_id}
+        )
+        
+        # 4. Changes save karo
+        db.commit()
+        
+        print(f"🧹 Kachra saaf! {pr_no} successfully deleted.")
+        return {"status": "success", "message": f"{pr_no} humesha ke liye delete ho gayi!"}
+
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Delete Error: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+    
 # ---------------------------------------------------------
-# 🚀 NEW ROUTE: FOR AGENT 3D DASHBOARD
+# 🚀 ROUTES: FOR AGENT 3D DASHBOARD
 # ---------------------------------------------------------
 @app.get("/agent")
 def serve_agent_dashboard():
     # Ye route hit hote hi aapki nayi HTML file serve ho jayegi
     return FileResponse("agent_ui/agent_dashboard.html")
 
+@app.get("/command_center/command_center.html")
+def serve_command_center():
+    # Ye route Gen UI button click hone par html file return karega
+    return FileResponse("command_center/command_center.html")
+
 @app.get("/object_0.glb")
 def serve_3d_model():
     # Ye route browser ko 3D file dega
     return FileResponse("agent_ui/object_0.glb")
+
+@app.get("/chat")
+def serve_chatbot_ui():
+    return FileResponse("frontend/mewar.html")

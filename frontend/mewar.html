@@ -40,7 +40,8 @@
     color: var(--text);
     border-radius: 16px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.15), 0 0 0 1px rgba(0,0,0,0.05);
-    display: flex;
+    display: none; /* Default hidden as chatbot opens on load */
+    opacity: 0;
     flex-direction: column;
     overflow: hidden;
     transition: width .28s ease, height .28s ease, border-radius .28s ease, transform 0.3s ease, opacity 0.3s ease;
@@ -288,7 +289,7 @@
     background: #0056b3;
     color: white;
     border-radius: 50%;
-    display: none; /* Default hidden as chatbot opens on load */
+    display: flex; /* Default hidden as chatbot opens on load */
     align-items: center;
     justify-content: center;
     cursor: pointer;
@@ -302,14 +303,12 @@
 </head>
 <body style="margin: 0; padding: 0; background: #e0e0e0;">
 
-<!-- 🚀 FLOATING LAUNCHER BUTTON (SHOWS WHEN CHAT IS CLOSED) 🚀 -->
 <button id="chatbotLauncher" title="Open Mewar ERP Chatbot">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 28px; height: 28px;">
     <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
   </svg>
 </button>
 
-<!-- MAIN CHATBOT WINDOW -->
 <div id="mewar-erp-chatbot">
   <header class="header">
     <svg class="logo-svg" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
@@ -322,7 +321,6 @@
       <div class="brand__sub"><span class="status__dot"></span>Chatbot</div>
     </div>
 
-    <!-- UTILITY BUTTONS (Clear, Size, Close) -->
     <button type="button" class="icon-btn" onclick="clearChatHistory()" title="Clear Chat History">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 1 0 2.13-5.87L21 8"></path>
@@ -335,7 +333,6 @@
       </svg>
     </button>
 
-    <!-- 🚀 NEW: CLOSE BUTTON 🚀 -->
     <button type="button" class="icon-btn" id="closeBotToggle" title="Close Chatbot">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -364,12 +361,15 @@
   </footer>
 </div>
 
-<!-- 🚀 CHART.JS SCRIPT TAG 🚀 -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
-// ── CONFIGURATION ────────────────────────────────────────────────────
-const API_URL = 'https://love14-mewar-erp-bot.hf.space/chatbot/';
+// ── CONFIGURATION (🟢 NAYA DYNAMIC LOGIC YAHAN HAI) ────────────────
+const API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.protocol === 'file:') 
+    ? 'http://127.0.0.1:8000' 
+    : 'https://love14-mewar-erp-bot.hf.space'; // Live server / Hugging Face Link
+
+const API_URL = `${API_BASE}/chatbot/`;
 const ACTIVE_ROLE = 'superadmin'; 
 
 // ── STATE ────────────────────────────────────────────────────────────
@@ -478,17 +478,24 @@ function getFilteredRows(store) {
   return store.rows.filter(r => r.some(v => String(v).toLowerCase().includes(store.search)));
 }
 
-function generateTableBodyHtml(store, filteredRows) {
+function generateTableBodyHtml(tableId, store, filteredRows) {
   if (filteredRows.length === 0) {
-     return `<tr><td colspan="${store.columns.length}" style="text-align:center; color:var(--muted); padding:15px;">No records match your filter</td></tr>`;
+     return `<tr><td colspan="${store.columns.length + (store.isSelectable ? 1 : 0)}" style="text-align:center; color:var(--muted); padding:15px;">No records match your filter</td></tr>`;
   }
   const start = (store.page - 1) * store.pageSize;
   const end = start + store.pageSize;
   const pagedRows = filteredRows.slice(start, end);
   
-  return pagedRows.map(r => 
-    '<tr>' + r.map(v => '<td>' + escapeHtml(v == null ? '' : v) + '</td>').join('') + '</tr>'
-  ).join('');
+  return pagedRows.map(r => {
+    let rowHtml = '<tr>';
+    if (store.isSelectable) {
+        const rowJson = escapeHtml(JSON.stringify(r));
+        rowHtml += `<td><input type="checkbox" class="pr-cb-${tableId}" data-row='${rowJson}'></td>`;
+    }
+    rowHtml += r.map(v => '<td>' + escapeHtml(v == null ? '' : v) + '</td>').join('');
+    rowHtml += '</tr>';
+    return rowHtml;
+  }).join('');
 }
 
 function updateTableDOM(tableId) {
@@ -505,7 +512,7 @@ function updateTableDOM(tableId) {
   if (countSpan) countSpan.textContent = filteredRows.length;
 
   const tbody = document.getElementById('tbody-' + tableId);
-  if (tbody) tbody.innerHTML = generateTableBodyHtml(store, filteredRows);
+  if (tbody) tbody.innerHTML = generateTableBodyHtml(tableId, store, filteredRows);
   
   const pageInfo = document.getElementById('page-info-' + tableId);
   if (pageInfo) pageInfo.textContent = `Page ${store.page} of ${totalPages}`;
@@ -524,18 +531,22 @@ function changePage(tableId, delta) {
    }
 }
 
-function tableCardHtml(title, columns, rows) {
+function tableCardHtml(title, columns, rows, isSelectable = false) {
   const id = 'tbl-' + (++tableSeq);
-  const store = { title, columns, rows, page: 1, pageSize: 10, search: '' };
+  const store = { title, columns, rows, page: 1, pageSize: 10, search: '', isSelectable };
   tableStore[id] = store;
   
-  let head = columns.map(c => '<th>' + escapeHtml(c) + '</th>').join('');
+  let head = '';
+  if (isSelectable) {
+      head += '<th style="width: 40px; text-align: center;"><input type="checkbox" onchange="toggleSelectAll(\'' + id + '\', this)" title="Select All Items"></th>';
+  }
+  head += columns.map(c => '<th>' + escapeHtml(c) + '</th>').join('');
   
   const filteredRows = getFilteredRows(store);
-  const tbodyHtml = generateTableBodyHtml(store, filteredRows);
+  const tbodyHtml = generateTableBodyHtml(id, store, filteredRows);
   const totalPages = Math.ceil(filteredRows.length / store.pageSize) || 1;
 
-  return `
+  let html = `
   <div class="chat-table-wrapper" id="${id}">
     <div class="chat-table-header">
       <span>${escapeHtml(title)} - <span id="count-${id}">${rows.length}</span> rows</span>
@@ -551,15 +562,84 @@ function tableCardHtml(title, columns, rows) {
       <button class="page-btn" id="prev-${id}" ${store.page === 1 ? 'disabled' : ''} onclick="changePage('${id}', -1)">Previous</button>
       <span id="page-info-${id}">Page 1 of ${totalPages}</span>
       <button class="page-btn" id="next-${id}" ${store.page === totalPages ? 'disabled' : ''} onclick="changePage('${id}', 1)">Next</button>
-    </div>
-  </div>`;
+    </div>`;
+    
+  if (isSelectable) {
+      html += `
+      <div style="padding: 10px; text-align: right; background: var(--panel-2); border-top: 1px solid var(--line);">
+        <button class="send-btn" style="background: #28a745;" onclick="generatePRFromSelected('${id}', '${escapeHtml(columns.join(','))}')">⚡ Generate PR for Selected</button>
+      </div>`;
+  }
+  
+  html += `</div>`;
+  return html;
 }
 
 function handleInlineSearch(inputElement, tableId) {
   if(tableStore[tableId]) {
      tableStore[tableId].search = inputElement.value.trim().toLowerCase();
-     tableStore[tableId].page = 1; // Reset to page 1 on search
+     tableStore[tableId].page = 1; 
      updateTableDOM(tableId);
+  }
+}
+
+function toggleSelectAll(tableId, masterCb) {
+  const checkboxes = document.querySelectorAll(`.pr-cb-${tableId}`);
+  checkboxes.forEach(cb => cb.checked = masterCb.checked);
+}
+
+// 🟢 UPDATE: Error Debugger aur Data Logger ke sath
+async function generatePRFromSelected(tableId, colString) {
+  const checkboxes = document.querySelectorAll(`.pr-cb-${tableId}:checked`);
+  if (checkboxes.length === 0) {
+    alert("Bhai, kam se kam ek item toh select karo! 😅");
+    return;
+  }
+  
+  const columns = colString.split(',');
+  const nameIdx = columns.findIndex(c => c.toLowerCase().includes('name') || c.toLowerCase().includes('description') || c.toLowerCase().includes('item'));
+  const qtyIdx = columns.findIndex(c => c.toLowerCase().includes('shortage') || c.toLowerCase().includes('required') || c.toLowerCase().includes('qty'));
+  
+  const selectedItems = [];
+  checkboxes.forEach(cb => {
+    const rowData = JSON.parse(cb.getAttribute('data-row'));
+    selectedItems.push({
+      item_name: String(rowData[nameIdx !== -1 ? nameIdx : 0]), // String fix
+      qty: parseFloat(rowData[qtyIdx !== -1 ? qtyIdx : 1]) || 0 // Number fix
+    });
+  });
+
+  const payload = { 
+      priority: 'NORMAL', 
+      status: 'submitted', 
+      requested_by: 9, // 🟢 ID format as Integer
+      items: selectedItems 
+  };
+  
+  console.log("🚀 SENDING PAYLOAD TO BACKEND:", payload);
+
+  addMessage('bot', reasoningHtml(`⏳ ${selectedItems.length} items ki Purchase Request ERP mein generate ho rahi hai...`));
+
+  try {
+    const response = await fetch(`${API_BASE}/api/purchase_request/store`, { 
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    
+    const result = await response.json();
+    
+    if (response.ok && result.status === 'success') {
+      addMessage('bot', bubbleHtml(`✅ **SUCCESS!** Nayi Purchase Request (${result.pr_no}) safalpurvak create ho gayi hai!`));
+    } else {
+      let errorMsg = result.message || "Unknown Server Error";
+      if (response.status === 422 && result.detail) {
+          errorMsg = "Schema Validation Error: " + JSON.stringify(result.detail);
+      }
+      addMessage('bot', bubbleHtml(`❌ **Backend Error:** ${errorMsg}`));
+    }
+  } catch (err) {
+    addMessage('bot', bubbleHtml(`❌ **Server Connection Error:** ${err.message}`));
   }
 }
 
@@ -570,25 +650,37 @@ function renderApiResults(results){
     if (part.type === 'chat'){
       html += chatSeen === 0 ? reasoningHtml(part.message) : bubbleHtml(part.message);
       chatSeen++;
-    } else if (part.type === 'nl2sql_table'){
+    } 
+    else if (part.type === 'pr_draft_action') {
+      const cols = ['Item Description', 'Required Qty', 'Unit'];
+      const rows = (part.items || []).map(item => [item.item_description || item.item_name, item.required_qty || item.qty, item.unit || 'Nos']);
+      html += tableCardHtml('WhatsApp PR Draft', cols, rows, true); 
+    } 
+    else if (part.type === 'nl2sql_table'){
       const cols = part.columns || [];
       const rows = (part.rows || []).map(r => cols.map(c => r[c]));
-      html += tableCardHtml('Query Results', cols, rows);
-    } else if (part.type === 'result'){
+      
+      const isShortageTable = cols.some(c => String(c).toLowerCase().includes('shortage') || String(c).toLowerCase().includes('required'));
+      
+      if (isShortageTable) {
+        html += tableCardHtml('Required Vs Available (Shortage)', cols, rows, true); 
+      } else {
+        html += tableCardHtml('Query Results', cols, rows, false); 
+      }
+    } 
+    else if (part.type === 'result'){
       const inv = part.inventory || {};
       const cols = ['ID','Name','Category','Placement','Total Stock','Finish Stock','Semi-Finish Stock','Machining Stock'];
       const rows = [[inv.id, inv.name, inv.category, inv.placement, part.total_stock, part.finish_stock, part.semi_finish_stock, part.machining_stock]];
-      html += tableCardHtml('Inventory Result', cols, rows);
+      html += tableCardHtml('Inventory Result', cols, rows, false);
     }
   });
   return html || bubbleHtml('Koi response nahi mila.');
 }
 
-// ── 🚀 INLINE GEN UI RENDER ENGINE (DYNAMIC SIZING & COLORS) ───────────────
 function buildInlineGenUiHtml(blueprint) {
   let chartConfigs = [];
   
-  // Mewar ERP Theme Color Palette
   const bgColors = [
       'rgba(0, 123, 255, 0.7)',   // Blue
       'rgba(220, 53, 69, 0.7)',   // Red
@@ -615,7 +707,6 @@ function buildInlineGenUiHtml(blueprint) {
   const layout = blueprint.grid_layout || [];
   
   layout.forEach((widget) => {
-      // 🚀 SIZE LOGIC: Chart takes full row (span 2), KPI takes half row (span 1)
       const gridSpan = widget.component === 'chart' ? 'grid-column: 1 / -1;' : 'grid-column: span 1;';
       
       html += `<div style="${gridSpan} border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: var(--panel-2);">`;
@@ -628,7 +719,6 @@ function buildInlineGenUiHtml(blueprint) {
       } else if (widget.component === 'chart') {
           genUiChartCounter++;
           const canvasId = `genui-inline-chart-${genUiChartCounter}`;
-          // Chart height increased to 260px for better visibility
           html += `
               <div style="color: var(--muted); font-size: 11px; text-transform: uppercase; font-weight: 600; margin-bottom: 10px;">${escapeHtml(widget.title)}</div>
               <div style="position: relative; height: 260px; width: 100%;">
@@ -693,7 +783,7 @@ async function sendMessage(text){
       scrollToBottom();
 
       try {
-          const res = await fetch('https://love14-mewar-erp-bot.hf.space/api/generate-ui', {
+          const res = await fetch(`${API_BASE}/api/generate-ui`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ command: q })
@@ -814,10 +904,20 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+// 🟢 UPDATE: Bina window band kiye history clear karne ka smart function
 function clearChatHistory() {
+    // 1. Storage aur memory se purani baatein (history) delete karein
     localStorage.removeItem('mewarChatData');
     localStorage.removeItem('mewarChatHistory');
-    window.location.reload(); 
+    chatHistory = [];
+    persistData = [];
+    
+    // 2. Chat screen se purane messages hata dein
+    const chatEl = document.getElementById('chat');
+    chatEl.innerHTML = '';
+    
+    // 3. Bina page reload kiye ek fresh Welcome message dikha dein
+    addMessage('bot', bubbleHtml("✨ Chat history clear ho gayi hai!"));
 }
 </script>
 </body>

@@ -776,7 +776,10 @@ products: id, name, is_deleted, estimation_budget, estimation_duration, start_da
 product_items: id, product_id(->products), inventory_id(->inventories), quantity, is_deleted, created_at, updated_at
 projects: id, name, status, priority, deadline, start_date, end_date, created_by(->users), is_deleted, completion_date, budget, comment, refurbish, created_at, updated_at
 project_item: id, project_id(->projects), inventory_id(->inventories), quantity, length, created_at, updated_at
+project_main_stage: id, project_id(->projects), main_stage_id(->stages), status_id(->stage_status), created_by, created_at, updated_at
 project_products: id, project_id(->projects), product_id(->products), quantity, status, is_deleted, created_at, updated_at
+project_stage_timelines: id, project_id(->projects), stage_id(->stages), start_date, end_date, created_at, updated_at
+project_sub_stages: id, project_id(->projects), project_main_stage_id(->project_main_stage), sub_stage_id(->stages), status_id(->stage_status), created_by, created_at, updated_at
 purchase_orders: id, po_number, supplier_id(->suppliers), po_date, expected_delivery, total_qty, subtotal, tax_amount, total_amount, subtotal_discount_amount, final_discount, loading_cutting_charges, freight_charges, advance_amount, balance_amount, remaining_amount, status, delivery_status, firm(->firms), remarks, terms_and_conditions, created_by(->users), approved_by(->users), created_at, completed_at
 purchase_order_items: id, purchase_order_id(->purchase_orders), pr_item_id(->purchase_request_items), inventory_id(->inventories), hsn, ordered_qty, received_qty, unit_price, discount, discount_amount, tax_type, tax_percent, tax_amount, taxable_total, line_total, item_not, created_at
 purchase_requests: id, pr_no, request_date, requested_by(->users), department_id(->departments), priority, status, remarks, total_qty, approved_by(->users), approved_at, created_at, updated_at
@@ -788,6 +791,8 @@ requisition_slips: id, rs_id, requisition_slip_no, store_rs, transaction_date, e
 requisition_slip_rows: id, requisition_slip_id(->requisition_slips), machine_id, item_id(->inventories), unit_id(->units), quantity, order_qty, issue_qty, pending_qty, order_pending_qty, issued_qty, consumed_qty, issued_height, issued_width, consumed_height, consumed_width, description, status, exited_qty, is_completed, unit
 requisition_slip_row_pieces: id, item_id(->inventories), requisition_slip_row_id(->requisition_slip_rows), issued_height, issued_width, issued_qty, consumed_height, consumed_width, consumed_qty, shape, is_completed, send_hod
 roles: id, name, deleted_at, created_at, updated_at
+stages: id, name, present, order_no, section, parent_id, created_at, updated_at
+stage_status: id, name, type, order_no, created_at, updated_at
 stock_transactions: id, project_id(->projects), machine_id, inventory_id(->inventories), txn_date, txn_type(enum: In/Out), quantity, ref_type, ref_no, issued_to(->users), issue_by(->users), requision_id(->requisition_slips), issue_slip_id(->issue_slips), supplier_id(->suppliers), vendor_id(->vendors), remarks
 suppliers: id, category, registration_date, supplier_name, supplier_code, contact_person, email, state, city, mobile, gst_registered, gstin, pan, supplier_address, bank_name, branch_address, ifsc, account_number, created_at, updated_at
 supplier_inventories: id, supplier_id(->suppliers), inventory_id(->inventories), quantity, created_at, updated_at
@@ -806,6 +811,21 @@ OUTPUT RULES — MUST FOLLOW:
 6. For vague/analytical questions ("best", "worst", "recommend"), fetch relevant metrics so the answer step can give a real recommendation.
 
 CRITICAL RULES (never violate):
+- CRITICAL MYSQL 5.7 RULE: The database is MySQL 5.7. You STRICTLY MUST NOT use 'WITH' clauses or Common Table Expressions (CTEs). You MUST use nested subqueries or derived tables instead. NEVER start a query with 'WITH'.
+- NEVER use `pp.inventory_id` or `project_products.inventory_id`. This column DOES NOT EXIST and will crash the database. ALWAYS use `pit.inventory_id` (from the `product_items` table) for grouping and selecting inventory.
+- RESPONSE TEXT RULE: NEVER guess or mention calculated numbers (like sums, counts, or totals) in your introductory text before the table. Let the SQL table display the final number. Use a simple intro like: "Here is the total sum based on your request:"
+- UNIVERSAL COMBO RULE (List + Total/Sum in ONE question): If the user asks for a list AND its total sum or count in the SAME message, ALWAYS use a derived table (nested subquery) instead of a CTE.
+Use this exact format:
+
+SELECT bd.*, 
+       (SELECT COUNT(*) FROM (/* PASTE BASE QUERY HERE */) AS temp_count) AS combo_total_count,
+       (SELECT SUM(column_name_to_sum) FROM (/* PASTE BASE QUERY HERE */) AS temp_sum) AS combo_total_sum 
+FROM (
+    -- Write your complete base query here for the list (without ORDER BY or LIMIT) --
+) AS bd
+ORDER BY 1 ASC;
+
+- COMBO TEXT RESPONSE: When you execute a combo query, use the `combo_total_sum` or `combo_total_count` values to announce the total in your introductory sentence. Do not try to manually calculate it in text, trust the SQL output.
 - suppliers name column: `supplier_name` — NEVER write s.name or suppliers.name
 - purchase_order_items FK to purchase_orders: column is `purchase_order_id` — NEVER write `po_id`
 - purchase_order_items has NO supplier_id — FK is on purchase_orders.supplier_id
@@ -829,7 +849,7 @@ CRITICAL RULES (never violate):
 - stock_transactions `txn_type` values are exactly: 'In' and 'Out' (capital first letter)
 - inventories has NO `current_stock` column — compute it: COALESCE(opening_quantity,0) + COALESCE(net_txn,0)
 - inventories has NO `quantity` column — use `opening_quantity` or compute from stock_transactions
-- DUAL EXTREMES (MAX & MIN): If the user asks for BOTH highest/biggest AND lowest/smallest metrics, you MUST use UNION ALL. CRITICAL SQL SYNTAX: In MariaDB/MySQL, when using ORDER BY and LIMIT inside a UNION ALL, you MUST wrap each SELECT statement in parentheses. Example: (SELECT id, po_number, total_amount FROM purchase_orders ORDER BY total_amount DESC LIMIT 1) UNION ALL (SELECT id, po_number, total_amount FROM purchase_orders ORDER BY total_amount ASC LIMIT 1).
+- DUAL EXTREMES (MAX & MIN): If the user asks for BOTH highest/biggest AND lowest/smallest metrics, you MUST use UNION ALL. CRITICAL SQL SYNTAX: In MariaDB/MySQL, when using ORDER BY and LIMIT inside a UNION ALL, you MUST wrap each SELECT statement in parentheses.
 - SPELLING OVERRIDES: For item thickness, ALWAYS use the exact column name 'thikness' (without 'c'). Never autocorrect it to 'thickness' in the query, otherwise it will crash. Other dimensions are 'height', 'width', 'length', 'outer_diameter', 'composition', 'grade'.
 - purchase_orders `status` values: 'Draft', 'Approved', 'Completed' (capital first letter)
 - When joining purchase_orders with grns: purchase_orders.id = grns.purchase_order_id
@@ -873,12 +893,11 @@ CRITICAL RULES (never violate):
   WHERE i.name LIKE '%...%' AND i.is_deleted = 0;
   Return a SINGLE row with total_stock. Do NOT list individual items — aggregate them.
 - MULTI-TYPE STOCK ("bolts and bearings ka stock", "how much X and Y do we have"):
-  Search by item name, NOT by categories table — categories has generic names like 'Raw Material', not 'Bearings'/'Bolts'.
+  Search by item name, NOT by categories table.
   Use UNION ALL to show each type as a labeled group. Example for bolt+bearing:
   SELECT 'Bolt' AS item_type, SUM(COALESCE(i.opening_quantity,0)+COALESCE((SELECT SUM(CASE WHEN txn_type='In' THEN quantity ELSE -quantity END) FROM stock_transactions WHERE inventory_id=i.id),0)) AS total_stock FROM inventories i WHERE i.name LIKE '%bolt%'
   UNION ALL
   SELECT 'Bearing' AS item_type, SUM(...) FROM inventories i WHERE i.name LIKE '%bearing%'
-  Always label each row with a human-readable item_type, not a model number or id.
 - MODEL-WISE STOCK BREAKDOWN ("model wise stock", "X ke saare models dikhao", "model wise breakdown"):
   Show each individual item row (not aggregated). Use this exact pattern:
   SELECT i.name, i.model,
@@ -888,81 +907,107 @@ CRITICAL RULES (never violate):
   ORDER BY i.name, i.model
   NEVER select `model` as a stock value. `model` is a text descriptor column on inventories. `current_stock` must always be computed from opening_quantity + stock_transactions SUM.
 - Pronouns "iski", "iska", "is item ki", "is cheez ki" in a follow-up refer to the item mentioned in the previous turn — resolve them from conversation context.
+- CONTEXTUAL AGGREGATION (COUNT/SUM): If the user asks for a "total count", "kitne items hain", or "sum" based on the previous list, DO NOT write a new query. You MUST wrap the EXACT, UNMODIFIED previous query inside a SUM() or COUNT() block.
+  If they ask for SUM, use this exact format:
+  SELECT SUM(required_qty) FROM (
+      -- PASTE THE EXACT RAW SQL QUERY FROM YOUR PREVIOUS RESPONSE HERE WITHOUT CHANGING A SINGLE WORD --
+  ) AS subq
+  If they ask for COUNT, use this exact format:
+  SELECT COUNT(*) FROM (
+      -- PASTE THE EXACT RAW SQL QUERY FROM YOUR PREVIOUS RESPONSE HERE WITHOUT CHANGING A SINGLE WORD --
+  ) AS subq
 - REQUIRED VS AVAILABLE STOCK ("required vs available", "shortage", "sabse badi shortage", "project ke liye kitna chahiye vs kitna hai"):
-  Business logic (exact match with ERP Dashboard):
-  - Active projects = status NOT IN ('completed','hold') AND is_deleted=0
-  - Base Required = BOM (pp.quantity * pit.quantity) + Direct (pi.quantity) for active projects.
-  - Issued/Approved Qty = Any requisition_slip_rows quantity that has been approved/issued.
-  - Final Required Qty = (Base Required) - (Issued/Approved Qty)
-  - Transactions grouped by inventory:
-    * t_in = In (excluding ref_type 'Finish')
-    * t_out = Out (excluding ref_type 'Machining')
-    * t_finish = In with ref_type 'Finish'
-    * t_mc = Out with ref_type 'Machining'
-  - Available (Total) = t_in - t_out
-  - Difference (Short/Extra) = Available - Final Required
-  ALWAYS use this exact SQL pattern:
-  SELECT i.id, i.name, i.model, i.classification,
-    GREATEST(COALESCE(bom.req, 0) + COALESCE(direct.req, 0) - COALESCE(rs.issued, 0), 0) AS required_qty,
-    COALESCE(st.t_in, 0) - COALESCE(st.t_out, 0) AS available_qty,
-    CASE 
-      WHEN i.classification = 'FINISH' OR i.classification IS NULL OR i.classification = '' THEN 0 
-      ELSE COALESCE(st.t_mc, 0) - COALESCE(st.t_finish, 0) 
-    END AS machining,
-    CASE 
-      WHEN i.classification = 'FINISH' OR i.classification IS NULL OR i.classification = '' THEN COALESCE(st.t_in, 0) - COALESCE(st.t_out, 0) 
-      ELSE COALESCE(st.t_finish, 0) - COALESCE(st.t_out, 0) 
-    END AS finish,
-    CASE 
-      WHEN i.classification = 'FINISH' OR i.classification IS NULL OR i.classification = '' THEN 0 
-      ELSE COALESCE(st.t_in, 0) - COALESCE(st.t_mc, 0) 
-    END AS semi_finish,
-    (COALESCE(st.t_in, 0) - COALESCE(st.t_out, 0)) - GREATEST(COALESCE(bom.req, 0) + COALESCE(direct.req, 0) - COALESCE(rs.issued, 0), 0) AS short_extra
-  FROM inventories i
+  CRITICAL: You MUST COPY AND PASTE this exact MySQL 5.7 compatible SQL template for shortage. DO NOT use CTEs (`WITH`):
+
+  SELECT i.name as item_name,
+         (COALESCE(tr.total_req, 0) - COALESCE(c.cons_qty, 0)) AS required_qty,
+         COALESCE(a.total_avail, 0) AS available_stock,
+         ((COALESCE(tr.total_req, 0) - COALESCE(c.cons_qty, 0)) - COALESCE(a.total_avail, 0)) AS shortage_qty
+  FROM (
+      SELECT inventory_id, SUM(req) as total_req FROM (
+          SELECT pi.inventory_id, SUM(CAST(pp.quantity AS SIGNED) * CAST(pi.quantity AS SIGNED)) as req
+          FROM projects p
+          JOIN project_products pp ON p.id = pp.project_id
+          JOIN product_items pi ON pp.product_id = pi.product_id
+          WHERE p.status = 'in_progress'
+          GROUP BY pi.inventory_id
+          UNION ALL
+          SELECT p_item.inventory_id, SUM(CAST(p_item.quantity AS SIGNED)) as req
+          FROM projects p
+          JOIN project_item p_item ON p.id = p_item.project_id
+          WHERE p.status = 'in_progress'
+          GROUP BY p_item.inventory_id
+      ) ReqUnion GROUP BY inventory_id
+  ) tr
+  JOIN inventories i ON tr.inventory_id = i.id
   LEFT JOIN (
-      SELECT pit.inventory_id, SUM(pp.quantity * pit.quantity) AS req 
-      FROM projects p 
-      JOIN project_products pp ON pp.project_id = p.id AND pp.is_deleted = 0 
-      JOIN product_items pit ON pit.product_id = pp.product_id AND pit.is_deleted = 0 
-      WHERE p.status NOT IN ('completed','hold') AND p.is_deleted = 0 
-      GROUP BY pit.inventory_id
-  ) bom ON bom.inventory_id = i.id
-  LEFT JOIN (
-      SELECT pi.inventory_id, SUM(pi.quantity) AS req 
-      FROM projects p 
-      JOIN project_item pi ON pi.project_id = p.id 
-      WHERE p.status NOT IN ('completed','hold') AND p.is_deleted = 0 
-      GROUP BY pi.inventory_id
-  ) direct ON direct.inventory_id = i.id
-  LEFT JOIN (
-      SELECT rsr.item_id, SUM(rsr.quantity) AS issued
-      FROM requisition_slip_rows rsr
-      JOIN requisition_slips rs ON rsr.requisition_slip_id = rs.id
-      WHERE LOWER(rs.status) IN ('approved', 'completed')
-      GROUP BY rsr.item_id
-  ) rs ON rs.item_id = i.id
-  LEFT JOIN (
-      SELECT inventory_id, 
-             SUM(CASE WHEN LOWER(txn_type) = 'in' AND LOWER(COALESCE(ref_type,'')) != 'finish' THEN quantity ELSE 0 END) AS t_in, 
-             SUM(CASE WHEN LOWER(txn_type) = 'out' AND LOWER(COALESCE(ref_type,'')) != 'machining' THEN quantity ELSE 0 END) AS t_out, 
-             SUM(CASE WHEN LOWER(txn_type) = 'in' AND LOWER(ref_type) = 'finish' THEN quantity ELSE 0 END) AS t_finish, 
-             SUM(CASE WHEN LOWER(txn_type) = 'out' AND LOWER(ref_type) = 'machining' THEN quantity ELSE 0 END) AS t_mc 
-      FROM stock_transactions 
+      SELECT inventory_id, SUM(quantity) as cons_qty
+      FROM stock_transactions
+      WHERE LOWER(txn_type) = 'out'
+        AND (project_id IN (SELECT id FROM projects WHERE status = 'in_progress')
+             OR machine_id IN (SELECT DISTINCT machine_id FROM stock_transactions WHERE project_id IN (SELECT id FROM projects WHERE status = 'in_progress') AND machine_id IS NOT NULL))
       GROUP BY inventory_id
-  ) st ON st.inventory_id = i.id
-  WHERE GREATEST(COALESCE(bom.req, 0) + COALESCE(direct.req, 0) - COALESCE(rs.issued, 0), 0) > 0 
-     OR COALESCE(st.t_in, 0) - COALESCE(st.t_out, 0) > 0 
-  ORDER BY short_extra ASC
+  ) c ON tr.inventory_id = c.inventory_id
+  LEFT JOIN (
+      SELECT inventory_id,
+      (SUM(CASE WHEN LOWER(txn_type) = 'in' AND (LOWER(ref_type) != 'finish' OR ref_type IS NULL OR ref_type = '') THEN quantity ELSE 0 END) -
+       SUM(CASE WHEN LOWER(txn_type) = 'out' AND (LOWER(ref_type) != 'machining' OR ref_type IS NULL OR ref_type = '') THEN quantity ELSE 0 END)) as total_avail
+      FROM stock_transactions GROUP BY inventory_id
+  ) a ON tr.inventory_id = a.inventory_id
+  WHERE i.is_deleted = 0
+  HAVING shortage_qty > 0
+  ORDER BY shortage_qty DESC;
+
+- ANY STOCK, INVENTORY, OR VALUATION QUERY ("stock", "qty", "valuation", "available", "semi-finish", "finish"):
+  CRITICAL & MANDATORY RULE: You MUST COPY AND PASTE this exact MySQL 5.7 compatible template (no CTEs). DO NOT use `WITH`.
+
+  SELECT item_name, rate, total_qty, valuation, machining_stock, finish_stock, semi_finish_stock FROM (
+      SELECT i.name as item_name, COALESCE(i.rate, 0.0) as rate,
+             (COALESCE(t.total_in, 0) - COALESCE(t.total_out, 0)) as total_qty,
+             ((COALESCE(t.total_in, 0) - COALESCE(t.total_out, 0)) * COALESCE(i.rate, 0.0)) AS valuation,
+             CASE WHEN UPPER(TRIM(COALESCE(i.classification, ''))) = 'SEMI_FINISH' THEN (COALESCE(t.total_mc, 0) - COALESCE(t.total_finish, 0)) ELSE 0 END AS machining_stock,
+             CASE WHEN UPPER(TRIM(COALESCE(i.classification, ''))) IN ('FINISH', '', 'NULL') THEN (COALESCE(t.total_in, 0) - COALESCE(t.total_out, 0)) WHEN UPPER(TRIM(COALESCE(i.classification, ''))) = 'SEMI_FINISH' THEN (COALESCE(t.total_finish, 0) - COALESCE(t.total_out, 0)) ELSE (COALESCE(t.total_in, 0) - COALESCE(t.total_finish, 0)) END AS finish_stock,
+             CASE WHEN UPPER(TRIM(COALESCE(i.classification, ''))) = 'SEMI_FINISH' THEN ((COALESCE(t.total_in, 0) - COALESCE(t.total_out, 0)) - (COALESCE(t.total_mc, 0) - COALESCE(t.total_finish, 0)) - (COALESCE(t.total_finish, 0) - COALESCE(t.total_out, 0))) ELSE 0 END AS semi_finish_stock
+      FROM inventories i LEFT JOIN (
+          SELECT inventory_id,
+          SUM(CASE WHEN LOWER(txn_type) = 'in' AND (LOWER(ref_type) != 'finish' OR ref_type IS NULL OR ref_type = '') THEN quantity ELSE 0 END) as total_in,
+          SUM(CASE WHEN LOWER(txn_type) = 'out' AND (LOWER(ref_type) != 'machining' OR ref_type IS NULL OR ref_type = '') THEN quantity ELSE 0 END) as total_out,
+          SUM(CASE WHEN LOWER(txn_type) = 'in' AND LOWER(ref_type) = 'finish' THEN quantity ELSE 0 END) as total_finish,
+          SUM(CASE WHEN LOWER(txn_type) = 'out' AND LOWER(ref_type) = 'machining' THEN quantity ELSE 0 END) as total_mc
+          FROM stock_transactions GROUP BY inventory_id
+      ) t ON i.id = t.inventory_id
+      WHERE i.is_deleted = 0 AND (COALESCE(t.total_in, 0) - COALESCE(t.total_out, 0)) > 0
+  ) AS CurrentStock
+  -- IMPORTANT: Modify the SELECT clause above based on user's query:
+  -- IF overall total: SELECT SUM(total_qty) AS total_items, SUM(valuation) AS total_valuation FROM (...) AS CurrentStock
+  -- IF specific item: Add `WHERE item_name LIKE '%term%'` at the end of the query.
+
+- STOCK LEDGER ("stock ledger", "item history", "ledger of X item", "transactions of X"):
+  CRITICAL: When a user asks for the ledger or transaction history of a specific item, you MUST match the ERP UI by including Party/Project details and proper chronological sorting.
+  Pattern: 
+  SELECT st.txn_date, st.txn_type, st.ref_type, i.name AS item_name, st.quantity, COALESCE(s.supplier_name, v.name, p.name, 'N/A') AS party_project_details, st.remarks 
+  FROM stock_transactions st 
+  JOIN inventories i ON st.inventory_id = i.id 
+  LEFT JOIN suppliers s ON st.supplier_id = s.id 
+  LEFT JOIN vendors v ON st.vendor_id = v.id 
+  LEFT JOIN projects p ON st.project_id = p.id 
+  WHERE (i.name LIKE '%term1%' OR i.name LIKE '%term2%') 
+  ORDER BY st.txn_date DESC, st.id DESC;
+- ITEM PURCHASE HISTORY, SUPPLIER & PRICING ("item ka price", "who supplies X", "PO history of item", "kisse kharida"):
+  When a user asks for the supplier, PO details, or purchase price of a specific item name, you MUST join purchase_order_items, purchase_orders, suppliers, and inventories.
+  Pattern:
+  SELECT i.name AS item_name, s.supplier_name, po.po_number, po.po_date AS order_date, poi.ordered_qty, poi.unit_price AS price
+  FROM purchase_order_items poi
+  JOIN purchase_orders po ON poi.purchase_order_id = po.id
+  JOIN suppliers s ON po.supplier_id = s.id
+  JOIN inventories i ON poi.inventory_id = i.id
+  WHERE (i.name LIKE '%term1%' OR i.name LIKE '%term2%')
+  ORDER BY po.po_date DESC;
 - GROUP BY STRICT MODE: If you use a GROUP BY clause, EVERY column in the SELECT list that is not inside an aggregate function (like SUM, COUNT, MAX) MUST be included in the GROUP BY clause. Do not leave trailing non-aggregated columns.
 - SOUNDS LIKE SYNTAX: NEVER use wildcard characters ('%') with SOUNDS LIKE. Correct: `col SOUNDS LIKE 'term'`. Wrong: `col SOUNDS LIKE '%term%'`.
 - DATE COMPARISONS: For queries asking about "today", "aaj", or "current", ALWAYS use the MySQL CURDATE() or NOW() functions instead of hardcoding dates.
 - NO DATA CREATION/FORMS: You are a READ-ONLY data retrieval assistant. NEVER say you are "creating", "drafting", or "preparing a form" for a request slip or PO. Always fetch EXISTING records using SELECT queries.
 - REQUEST SLIPS (RS) BY PROJECT: If the user asks for "request slips", "RS", or "slips" for a specific project (e.g., "sonampur cement ki request slip"), you MUST join with the projects table.
-  Pattern: SELECT rs.requisition_slip_no, p.name AS project, rs.transaction_date, rs.status 
-  FROM requisition_slips rs JOIN projects p ON rs.project_id = p.id 
-  WHERE p.name LIKE '%term%'.
-  (CRITICAL: Intelligently fix minor typos in the LIKE clause. e.g., if user writes 'sonampur', search for '%sonapur%').
-  - REQUEST SLIPS (RS) BY PROJECT: If the user asks for "request slips", "RS", or "slips" for a specific project (e.g., "sonampur cement ki request slip"), you MUST join with the projects table.
   Pattern: SELECT rs.requisition_slip_no, p.name AS project, rs.transaction_date, rs.status 
   FROM requisition_slips rs JOIN projects p ON rs.project_id = p.id 
   WHERE p.name LIKE '%term%'.
@@ -976,7 +1021,7 @@ CRITICAL RULES (never violate):
   LEFT JOIN grn_items gi ON gi.grn_id = g.id
   GROUP BY g.id, g.grn_number, po.po_number, s.supplier_name, g.grn_date, g.invoice_no
   ORDER BY g.grn_date DESC
-  - REQUEST SLIP (RS) DASHBOARD: If the user asks for "saari request slips", "pending RS", or filters by date/project/status/code, ALWAYS use this dashboard structure:
+- REQUEST SLIP (RS) DASHBOARD: If the user asks for "saari request slips", "pending RS", or filters by date/project/status/code, ALWAYS use this dashboard structure:
   SELECT rs.requisition_slip_no AS rs_code, p.name AS project_name, rs.transaction_date AS created_date, rs.status
   FROM requisition_slips rs
   LEFT JOIN projects p ON rs.project_id = p.id
@@ -987,7 +1032,7 @@ CRITICAL RULES (never violate):
   -- 3. RS Code ("RS 00012", "slip number 10"): AND rs.requisition_slip_no LIKE '%00012%'
   -- 4. Project ("Sonapur cement ki RS"): AND p.name LIKE '%sonapur%'
   ORDER BY rs.transaction_date DESC
-  - PURCHASE REQUEST (PR) DASHBOARD: If the user asks for "saari purchase requests", "PR list", "pending PR", or filters by priority/status/date, ALWAYS use this dashboard structure:
+- PURCHASE REQUEST (PR) DASHBOARD: If the user asks for "saari purchase requests", "PR list", "pending PR", or filters by priority/status/date, ALWAYS use this dashboard structure:
   SELECT pr.pr_number, pr.request_date, pr.requested_by, pr.total_qty, pr.priority, pr.status
   FROM purchase_requests pr
   WHERE 1=1
@@ -997,9 +1042,34 @@ CRITICAL RULES (never violate):
   -- 3. Priority ("High priority wali PR dikhao"): AND LOWER(pr.priority) = 'high'
   -- 4. PR Number ("PR-104 ki details"): AND pr.pr_number LIKE '%104%'
   ORDER BY pr.request_date DESC
-  - TOP N QUERIES (Ranking): If the user asks for "top 5", "highest", "biggest", or "sabse bade" (e.g., "top 5 po dikhao"), NEVER use LIKE '%top%'. You MUST use `ORDER BY` and `LIMIT`.
+- TOP N QUERIES (Ranking): If the user asks for "top 5", "highest", "biggest", or "sabse bade" (e.g., "top 5 po dikhao"), NEVER use LIKE '%top%'. You MUST use `ORDER BY` and `LIMIT`.
   Pattern for POs: SELECT po.po_number, s.supplier_name, po.po_date, po.total_amount, po.status FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id ORDER BY po.total_amount DESC LIMIT 5
-  - CRITICAL RULE FOR CHATBOT RESPONSE TONE & LOGIC:
+- COMPARISON QUERIES ("compare X and Y", "X vs Y", "difference between"): 
+  NEVER output CANNOT_ANSWER for comparison queries. If the category is not explicitly mentioned, ALWAYS assume they are suppliers. Fetch key aggregated metrics for BOTH entities using an OR condition. 
+  Pattern for Supplier Comparison: 
+  SELECT s.supplier_name, COUNT(po.id) AS total_orders, SUM(po.total_amount) AS total_order_value, SUM(po.balance_amount) AS pending_balance 
+  FROM suppliers s 
+  LEFT JOIN purchase_orders po ON s.id = po.supplier_id 
+  WHERE (s.supplier_name LIKE '%term1%' OR s.supplier_name LIKE '%term2%') 
+  GROUP BY s.id, s.supplier_name;
+- PROJECT PROGRESS & STAGES ("project progress", "kitna complete hua", "stage batao", "workflow"):
+  When asked about a project's completion, progress, or stages, you MUST join `projects`, `project_main_stage`, `stages`, and `stage_status`. The `present` column in `stages` represents the weightage percentage.
+  ALWAYS use this pattern:
+  SELECT p.name AS project_name, st.name AS stage_name, st.present AS weight_percent, ss.name AS current_status
+  FROM projects p
+  JOIN project_main_stage pms ON p.id = pms.project_id
+  JOIN stages st ON pms.main_stage_id = st.id
+  JOIN stage_status ss ON pms.status_id = ss.id
+  WHERE (p.name LIKE '%term1%' OR p.name LIKE '%term2%')
+  ORDER BY st.order_no ASC;
+- WHATSAPP / RAW TEXT PR PARSING INTENT:
+  If the user pastes a raw list or WhatsApp message containing items with quantities/units (e.g., "1) Welding Rod = 30 Box", "Color req. 60 Ltr") OR asks to import PR text:
+  You MUST NOT output SQL. You MUST return a valid JSON string exactly like this (without markdown, without ```json):
+  {"action": "PR_TEXT_IMPORT", "items": [{"item_description": "Exact Item Name", "required_qty": 30, "unit": "Box"}]}
+- PR CREATION FROM SHORTAGE INTENT ("PR banao", "shortage ki PR banao", "PR generate karo"):
+  When the user asks to generate/create a PR based on shortage or "Required vs Available":
+  You MUST run the EXACT SHORTAGE / REQUIRED VS AVAILABLE SQL template (provided above in these instructions). The frontend UI will automatically handle rendering the checkboxes.
+- CRITICAL RULE FOR CHATBOT RESPONSE TONE & LOGIC:
   1. If the SQL query returns an empty table or states required_qty is 0 for an item, DO NOT say "Stock is insufficient". Instead, professionally state: "Currently, this item is not required for any active projects."
   2. Maintain a strict, professional corporate tone. NEVER use casual filler words like "hmm", "ek sec", or emojis like 🧐. Use phrases like "Scanning inventory and project requirements..."
   3. Only state there is a shortage if the data explicitly shows required_qty > available_qty.
@@ -1021,10 +1091,13 @@ You are a smart business assistant for Mewar ERP. Keep replies SHORT — 1 to 3 
 LANGUAGE: Always reply in Hinglish (Hindi + English mix). Use English for numbers, names, dates.
 Examples: "Total 6 suppliers hain.", "Arawali Minerals ne sabse zyada orders diye — 18 POs."
 
+CRITICAL RULES:
 - Factual queries: give the key number/name directly, skip preamble.
+- DO NOT calculate or sum up quantities. The exact number of parts/records is {row_count}. If you mention how many items there are, YOU STRICTLY MUST USE THE NUMBER {row_count}. NEVER use the sum of quantities.
 - Analytical queries ("best", "recommend"): 1 sentence insight + 1 sentence reason.
 - If no data: say so in 1 line.
 - NEVER mention SQL, database, tables, or technical terms.
+- SHORTAGE & PR CREATION: If the query is about 'Required vs Available', shortage, or generating a PR, explicitly invite the user in Hinglish to select/tick the items from the table below and click the "⚡ Generate PR for Selected" button.
 - Today is {today}.
 """
 
@@ -1059,6 +1132,10 @@ def _clean_sql(raw: str) -> str:
 def _validate(raw: str) -> str:
     if raw.upper().startswith("CANNOT_ANSWER"):
         raise ValueError("Cannot be answered from the schema")
+    
+    # 🚀 NAYA RULE: Agar AI ne JSON bheja hai (WhatsApp Text parsing ke liye), toh pass hone do
+    if raw.strip().startswith("{") and "PR_TEXT_IMPORT" in raw:
+        return raw.strip()
     
     # 🟢 UPDATE: Bracket '(' se shuru hone wali queries ko bhi allow karo
     if not re.match(r"^\s*(?:SELECT|WITH|\()", raw, re.IGNORECASE):
@@ -1122,6 +1199,9 @@ def generate_sql(user_query: str, schema_full: str = "", schema_compact: str = "
 def format_answer(user_query: str, rows: list, columns: list,
                   history: list = None) -> str:
     today = datetime.datetime.now().strftime("%Y-%m-%d")
+    
+    # 🚀 Yahan hum exact row count nikal rahe hain
+    row_count = len(rows) if rows else 0 
 
     if not rows:
         data_text = "No data found."
@@ -1142,14 +1222,11 @@ def format_answer(user_query: str, rows: list, columns: list,
 
     ctx  = _history_context(history or [])
     user = f"{ctx}User asked: {user_query}\n\nData returned:\n{data_text}\n{null_warning}\nGive a clear friendly answer."
-    system = _ANSWER_SYSTEM.format(today=today)
+    
+    # 🚀 sending row_count to prompt
+    system = _ANSWER_SYSTEM.format(today=today, row_count=row_count) 
 
     try:
         return _call_ai(system_full=system, system_compact=system, user=user)
     except Exception:
         return data_text if rows else "Koi data nahi mila."
-
-
-#fgddxf
-
-

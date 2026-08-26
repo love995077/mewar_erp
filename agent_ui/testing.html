@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Mewar Hi-Tech — Agent Operations Center</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ── Theme tokens (Semi-Transparent for 3D Background) ── */
+[data-theme="light"] {
+  --bg: transparent; 
+  --surface: rgba(255, 255, 255, 0.75); 
+  --surface2: rgba(248, 246, 242, 0.8);
+  --border: rgba(0,0,0,0.1); 
+  --border2: rgba(0,0,0,0.15);
+  --text-1: #111827; --text-2: #4b5563; --text-3: #6b7280;
+  --nav-bg: rgba(244,241,237,0.7);
+  --chip-bg: rgba(0,0,0,0.05);
+  --input-bg: rgba(255,255,255,0.6);
+  --shadow: 0 4px 16px rgba(0,0,0,0.06);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.10);
+  --kpi-bg: rgba(26, 31, 46, 0.85);
+  --chat-user: rgba(227, 240, 255, 0.8); --chat-ai: rgba(240, 244, 248, 0.8);
+  --alert-bg: rgba(255,255,255,0.9);
+}
+[data-theme="dark"] {
+  --bg: transparent; 
+  --surface: rgba(26, 29, 39, 0.65); 
+  --surface2: rgba(34, 38, 58, 0.7);
+  --border: rgba(255,255,255,0.08); 
+  --border2: rgba(255,255,255,0.15);
+  --text-1: #f1f5f9; --text-2: #94a3b8; --text-3: #64748b;
+  --nav-bg: rgba(15,17,23,0.7);
+  --chip-bg: rgba(255,255,255,0.05);
+  --input-bg: rgba(0,0,0,0.3);
+  --shadow: 0 4px 16px rgba(0,0,0,0.3);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
+  --kpi-bg: rgba(8, 11, 18, 0.85);
+  --chat-user: rgba(30, 58, 95, 0.8); --chat-ai: rgba(26, 29, 39, 0.8);
+  --alert-bg: rgba(26, 29, 39, 0.9);
+}
+
+* { box-sizing:border-box; margin:0; padding:0; }
+html,body { min-height:100%; font-family:'Inter',-apple-system,sans-serif; color:var(--text-1); font-size:14px; line-height:1.5; overflow-x: hidden; }
+
+/* ── 3D BACKGROUND STYLES ── */
+body { background: radial-gradient(circle at center, #0a1118 0%, #020305 100%); transition: background 0.5s; }
+body.light-gradient { background: radial-gradient(circle at center, #e2e8f0 0%, #94a3b8 100%); }
+
+#canvas-container { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: -2; cursor: grab; }
+#canvas-container:active { cursor: grabbing; }
+#grid-overlay {
+    position: fixed; inset: 0; pointer-events: none; z-index: -1;
+    background-image: linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+    background-size: 50px 50px;
+}
+#loading-text { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: -1; color: #00F0FF; font-family: 'JetBrains Mono', monospace; font-size: 18px; letter-spacing: 2px; text-shadow: 0 0 10px #00F0FF; }
+
+/* ── UI Wrappers ── */
+#nav, .agent-card, .card, #kpi-banner, .alert-toast, .chat-panel {
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+
+/* ── KPI Banner ── */
+#kpi-banner { background:var(--kpi-bg); padding:0 28px; display:flex; align-items:center; gap:0; overflow:hidden; height:48px; border-bottom: 1px solid var(--border); }
+.kpi-item { display:flex; align-items:center; gap:10px; padding:0 22px; border-right:1px solid rgba(255,255,255,0.08); flex-shrink:0; }
+.kpi-item:first-child { padding-left:0; }
+.kpi-label { font-size:9.5px; letter-spacing:1px; text-transform:uppercase; color:rgba(255,255,255,0.5); }
+.kpi-val { font-family:'JetBrains Mono',monospace; font-size:15px; font-weight:700; color:#fff; }
+.kpi-progress { flex:1; margin-left:auto; display:flex; align-items:center; gap:10px; padding-left:22px; justify-content: flex-end; }
+.kpi-prog-label { font-size:10px; color:rgba(255,255,255,0.5); white-space:nowrap; }
+.kpi-prog-pct { font-family:'JetBrains Mono',monospace; font-size:11px; color:#4caf50; font-weight:600; }
+
+/* ── Nav ── */
+#nav { position:sticky; top:0; z-index:100; background:var(--nav-bg); border-bottom:1px solid var(--border); padding:0 28px; height:58px; display:flex; align-items:center; justify-content:space-between; transition:background .3s; }
+.nav-brand { display:flex; align-items:center; gap:12px; }
+.nav-gem { width:30px; height:30px; background:#e65100; clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%); flex-shrink:0; }
+.nav-title { font-size:14px; font-weight:800; letter-spacing:2px; text-transform:uppercase; color:var(--text-1); }
+.nav-sub { font-size:10px; color:var(--text-3); letter-spacing:.5px; margin-top:1px; }
+.nav-right { display:flex; align-items:center; gap:12px; }
+.nav-badge { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:600; color:var(--text-1); background:var(--surface); border:1px solid var(--border); padding:5px 11px; border-radius:20px; cursor: pointer; transition: 0.3s;}
+.nav-badge:hover { background: rgba(0,240,255,0.1); border-color: #00F0FF; color: #00F0FF; }
+.pulse { width:6px; height:6px; border-radius:50%; background:#2e7d32; animation:pulse 2s ease-out infinite; }
+@keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(46,125,50,.5)} 70%{box-shadow:0 0 0 7px rgba(46,125,50,0)} 100%{box-shadow:0 0 0 0 rgba(46,125,50,0)} }
+#clock { font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--text-3); }
+
+#dark-toggle { width:36px; height:20px; background:var(--border2); border:none; border-radius:10px; cursor:pointer; position:relative; transition:background .3s; flex-shrink:0; padding:0; }
+#dark-toggle::after { content:''; position:absolute; top:3px; left:3px; width:14px; height:14px; border-radius:50%; background:#fff; transition:transform .3s; box-shadow:0 1px 3px rgba(0,0,0,.2); }
+[data-theme="dark"] #dark-toggle { background:#3b82f6; }
+[data-theme="dark"] #dark-toggle::after { transform:translateX(16px); }
+.toggle-label { font-size:11px; color:var(--text-3); }
+
+/* ── Alert toast system ── */
+#alert-stack { position:fixed; top:120px; right:20px; z-index:999; display:flex; flex-direction:column; gap:10px; width:320px; pointer-events:none; }
+.alert-toast { background:var(--alert-bg); border:1px solid var(--border2); border-radius:12px; padding:12px 14px; box-shadow:var(--shadow-lg); pointer-events:all; display:flex; align-items:flex-start; gap:10px; animation:slideIn .3s cubic-bezier(.2,.8,.2,1); transition:opacity .3s,transform .3s; }
+.alert-toast.dismissing { opacity:0; transform:translateX(20px); }
+@keyframes slideIn { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:none} }
+.alert-icon { font-size:18px; flex-shrink:0; line-height:1; margin-top:1px; }
+.alert-body { flex:1; min-width:0; }
+.alert-title { font-weight:700; font-size:12px; color:var(--text-1); }
+.alert-desc { font-size:11px; color:var(--text-2); margin-top:2px; line-height:1.4; }
+.alert-bar { height:3px; border-radius:0 0 12px 12px; margin:-12px -14px 0; margin-top:10px; animation:countdown linear forwards; }
+@keyframes countdown { from{width:100%} to{width:0} }
+.alert-close { background:none; border:none; cursor:pointer; color:var(--text-3); font-size:14px; padding:0; line-height:1; flex-shrink:0; }
+
+/* ── Main layout ── */
+#main { padding:22px 28px 40px; max-width:1440px; margin:0 auto; position: relative; z-index: 10; pointer-events: none;}
+#main > * { pointer-events: auto; }
+.section-label { font-size:11px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--text-3); margin-bottom:14px; }
+#agents { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; margin-bottom:28px; }
+
+/* ── Agent card ── */
+.agent-card { background:var(--surface); border-radius:16px; border:1px solid var(--border); box-shadow:var(--shadow); overflow:hidden; transition:box-shadow .2s,background .3s; display:flex; flex-direction:column; }
+.agent-card:hover { box-shadow:var(--shadow-lg); border-color: rgba(255,255,255,0.3); }
+.agent-header { padding:18px 18px 14px; display:flex; align-items:flex-start; gap:12px; border-bottom:1px solid var(--border); }
+.agent-avatar { width:48px; height:48px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; position:relative; }
+.avatar-ring { position:absolute; inset:-3px; border-radius:15px; border:2px solid transparent; animation:ringPulse 3s ease-in-out infinite; }
+@keyframes ringPulse { 0%,100%{opacity:.35} 50%{opacity:1} }
+.agent-info { flex:1; min-width:0; }
+.agent-codename { font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:600; letter-spacing:1.4px; text-transform:uppercase; margin-bottom:2px; }
+.agent-name { font-size:14px; font-weight:700; color:var(--text-1); }
+.agent-desc { font-size:11px; color:var(--text-3); margin-top:2px; line-height:1.4; }
+.agent-status { display:flex; align-items:center; gap:5px; font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:500; padding:4px 9px; border-radius:20px; flex-shrink:0; }
+.status-dot { width:5px; height:5px; border-radius:50%; animation:pulse 2s ease-out infinite; }
+
+.agent-ticker { padding:7px 18px; font-size:11px; color:var(--text-3); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:6px; min-height:34px; overflow:hidden; transition:color .3s; }
+.ticker-dot { width:4px; height:4px; border-radius:50%; flex-shrink:0; }
+.ticker-text { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; transition:opacity .3s; }
+
+.agent-body { padding:16px 18px; flex:1; }
+
+.stat-row { display:flex; gap:8px; margin-bottom:16px; }
+.stat-chip { flex:1; padding:9px 11px; border-radius:10px; background:var(--chip-bg); transition:background .3s; }
+.stat-chip-label { font-size:9.5px; letter-spacing:.5px; text-transform:uppercase; color:var(--text-3); margin-bottom:3px; }
+.stat-chip-value { font-family:'JetBrains Mono',monospace; font-size:18px; font-weight:600; color:var(--text-1); line-height:1; }
+
+/* ── Chat button + panel ── */
+.chat-btn { display:flex; align-items:center; gap:6px; margin:0 18px 18px; padding:9px 14px; border-radius:10px; border:1px solid var(--border2); background:var(--surface2); cursor:pointer; font-size:12px; font-weight:600; color:var(--text-2); transition:all .2s; width:calc(100% - 36px); font-family:'Inter',sans-serif; }
+.chat-btn:hover { border-color:var(--agent-color,#888); color:var(--agent-color,#888); background:var(--surface); }
+
+.chat-panel { border-top:1px solid var(--border); background:var(--surface); display:none; flex-direction:column; max-height:0; overflow:hidden; transition:max-height .35s cubic-bezier(.4,0,.2,1); }
+.chat-panel.open { display:flex; max-height:350px; }
+.chat-messages { flex:1; overflow-y:auto; padding:12px 14px; display:flex; flex-direction:column; gap:8px; min-height:160px; max-height: 250px;}
+.chat-messages::-webkit-scrollbar { width:3px; }
+.chat-messages::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+.msg { max-width:88%; padding:8px 11px; border-radius:10px; font-size:12px; line-height:1.5; word-break:break-word; }
+.msg.ai { align-self:flex-start; background:var(--chat-ai); color:var(--text-1); border-bottom-left-radius:3px; border:1px solid var(--border); }
+.msg .msg-sender { font-size:10px; font-weight:700; margin-bottom:3px; }
+
+/* Real Approve Button */
+.btn-approve-action {
+    display: none; width: calc(100% - 36px); margin: 0 18px 18px; padding: 12px;
+    background: #2e7d32; color: #fff; border: none; border-radius: 10px;
+    font-weight: 700; font-family: 'Inter', sans-serif; cursor: pointer;
+    transition: 0.3s; box-shadow: 0 4px 12px rgba(46,125,50,0.3); text-transform: uppercase; font-size: 12px;
+}
+.btn-approve-action:hover { background: #1b5e20; transform: translateY(-2px); box-shadow: 0 6px 16px rgba(46,125,50,0.5);}
+
+/* ── Bottom row ── */
+#bottom { display:grid; grid-template-columns:1fr; gap:20px; }
+.card { background:var(--surface); border-radius:16px; border:1px solid var(--border); box-shadow:var(--shadow); padding:20px; transition:background .3s; }
+.card-title { font-size:13px; font-weight:700; color:var(--text-1); margin-bottom:3px; }
+.card-sub { font-size:11px; color:var(--text-3); margin-bottom:16px; }
+.log-list { display:flex; flex-direction:column; }
+.log-item { display:flex; align-items:flex-start; gap:11px; padding:9px 0; border-bottom:1px solid var(--chip-bg); font-size:12px; }
+.log-item:last-child { border-bottom:none; }
+.log-icon { width:28px; height:28px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:13px; flex-shrink:0; margin-top:1px; background: var(--chip-bg);}
+.log-text { flex:1; }
+.log-title { font-weight:600; color:var(--text-1); }
+.log-desc { color:var(--text-3); margin-top:1px; font-size:11px; }
+.log-time { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-3); flex-shrink:0; margin-top:3px; }
+
+@media(max-width:1024px){ #agents{grid-template-columns:1fr} #main{padding:14px} .kpi-item{padding:0 14px} }
+</style>
+</head>
+<body>
+
+<div id="grid-overlay"></div>
+<div id="canvas-container"></div>
+<div id="loading-text">SCANNING MODEL: OBJECT_0.GLB...</div>
+
+<div id="kpi-banner">
+  <div class="kpi-item"><div><div class="kpi-label">Active Demands</div><div><span class="kpi-val" id="kpi-demands">-</span></div></div></div>
+  <div class="kpi-item"><div><div class="kpi-label">Low Stock Items</div><div><span class="kpi-val" id="kpi-low">-</span></div></div></div>
+  <div class="kpi-item"><div><div class="kpi-label">POs Generated Today</div><div><span class="kpi-val" id="kpi-pos">-</span></div></div></div>
+  <div class="kpi-progress">
+    <span class="kpi-prog-label">System Readiness</span>
+    <span class="kpi-prog-pct">ONLINE</span>
+  </div>
+</div>
+
+<nav id="nav">
+  <div class="nav-brand">
+    <div class="nav-gem"></div>
+    <div>
+      <div class="nav-title">Mewar Hi-Tech</div>
+      <div class="nav-sub">Intelligent Agent Operations (Production Mode)</div>
+    </div>
+  </div>
+  <div class="nav-right">
+    <button onclick="window.location.href='/command_center/command_center2.html'" class="nav-badge" style="background: transparent; border-color: #00F0FF; color: #00F0FF; box-shadow: 0 0 5px rgba(0,240,255,0.2);">🪄 Generative UI</button>
+
+    <div class="nav-badge" onclick="triggerManualScan()">🔄 TEST AGENT</div>
+    <div class="nav-badge"><span class="pulse"></span>3 Agents Active</div>
+    <span class="toggle-label">🌙</span>
+    <button id="dark-toggle" aria-label="Toggle dark mode"></button>
+    <div id="clock">--:--:--</div>
+  </div>
+</nav>
+
+<div id="alert-stack"></div>
+
+<div id="main">
+  <div class="section-label">Agent Workstations</div>
+  <div id="agents">
+
+    <div class="agent-card" id="card-scanner">
+      <div class="agent-header">
+        <div class="agent-avatar" style="background:rgba(33, 150, 243, 0.1);">🔍<div class="avatar-ring" style="border-color:#2196f3;"></div></div>
+        <div class="agent-info">
+          <div class="agent-codename" style="color:#2196f3;">The Scanner</div>
+          <div class="agent-name">Demand Observer</div>
+          <div class="agent-desc">Monitors production demand against available inventory across ERP.</div>
+        </div>
+        <div class="agent-status" style="background:rgba(33, 150, 243, 0.1);color:#2196f3;"><span class="status-dot" style="background:#2196f3;"></span>LIVE</div>
+      </div>
+      <div class="agent-ticker" id="ticker-scanner"><span class="ticker-dot" style="background:#2196f3;"></span><span class="ticker-text">Waiting for trigger to scan demand...</span></div>
+      <div class="agent-body">
+        <div class="stat-row">
+          <div class="stat-chip"><div class="stat-chip-label">Target Item</div><div class="stat-chip-value" id="a1-item" style="color:#2196f3;">-</div></div>
+          <div class="stat-chip"><div class="stat-chip-label">Exact Shortage</div><div class="stat-chip-value" id="a1-short">-</div></div>
+        </div>
+      </div>
+      <button class="chat-btn" onclick="toggleChat('scanner')" style="--agent-color:#2196f3;">
+        <span class="chat-btn-icon">💬</span> View Scanner Terminal
+      </button>
+      <div class="chat-panel" id="chat-scanner">
+        <div class="chat-messages" id="msgs-scanner">
+          <div class="msg ai"><div class="msg-sender" style="color:#2196f3;">🔍 Scanner</div>System ready. Click "TEST AGENT" to initiate database scan.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="agent-card" id="card-optimizer">
+      <div class="agent-header">
+        <div class="agent-avatar" style="background:rgba(255, 111, 0, 0.1);">⚡<div class="avatar-ring" style="border-color:#ff6f00;"></div></div>
+        <div class="agent-info">
+          <div class="agent-codename" style="color:#ff6f00;">The Optimizer</div>
+          <div class="agent-name">Sourcing Strategist</div>
+          <div class="agent-desc">Cross-references verified suppliers and calculates optimal PO values.</div>
+        </div>
+        <div class="agent-status" style="background:rgba(255, 111, 0, 0.1);color:#ff6f00;"><span class="status-dot" style="background:#ff6f00;"></span>LIVE</div>
+      </div>
+      <div class="agent-ticker" id="ticker-optimizer"><span class="ticker-dot" style="background:#ff6f00;"></span><span class="ticker-text">Awaiting shortage data...</span></div>
+      <div class="agent-body">
+        <div class="stat-row">
+          <div class="stat-chip"><div class="stat-chip-label">Best Supplier</div><div class="stat-chip-value" id="a2-sup" style="color:#ff6f00; font-size:12px;">-</div></div>
+          <div class="stat-chip"><div class="stat-chip-label">Unit Price</div><div class="stat-chip-value" id="a2-price">-</div></div>
+        </div>
+      </div>
+      <button class="chat-btn" onclick="toggleChat('optimizer')" style="--agent-color:#ff6f00;">
+        <span class="chat-btn-icon">💬</span> View Optimizer Terminal
+      </button>
+      <div class="chat-panel" id="chat-optimizer">
+        <div class="chat-messages" id="msgs-optimizer">
+          <div class="msg ai"><div class="msg-sender" style="color:#ff6f00;">⚡ Optimizer</div>Standing by to calculate optimal supplier data...</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="agent-card" id="card-approver">
+      <div class="agent-header">
+        <div class="agent-avatar" style="background:rgba(46, 125, 50, 0.1);">✅<div class="avatar-ring" style="border-color:#2e7d32;"></div></div>
+        <div class="agent-info">
+          <div class="agent-codename" style="color:#2e7d32;">The Assistant</div>
+          <div class="agent-name">Digital Approver</div>
+          <div class="agent-desc">Drafts formal ERP Purchase Orders and requests final Manager auth.</div>
+        </div>
+        <div class="agent-status" style="background:rgba(46, 125, 50, 0.1);color:#2e7d32;"><span class="status-dot" style="background:#2e7d32;"></span>LIVE</div>
+      </div>
+      <div class="agent-ticker" id="ticker-approver"><span class="ticker-dot" style="background:#2e7d32;"></span><span class="ticker-text">Ready to draft PO...</span></div>
+      <div class="agent-body">
+        <div class="stat-row">
+          <div class="stat-chip"><div class="stat-chip-label">Draft PO Number</div><div class="stat-chip-value" id="a3-po" style="color:#2e7d32; font-size:12px;">-</div></div>
+          <div class="stat-chip"><div class="stat-chip-label">Total Cost</div><div class="stat-chip-value" id="a3-cost">-</div></div>
+        </div>
+      </div>
+      
+      <button id="btn-approve-action" class="btn-approve-action">✅ AUTHORIZE P.O.</button>
+
+      <button class="chat-btn" id="chat-btn-approver" onclick="toggleChat('approver')" style="--agent-color:#2e7d32;">
+        <span class="chat-btn-icon">💬</span> View Approver Terminal
+      </button>
+      <div class="chat-panel" id="chat-approver">
+        <div class="chat-messages" id="msgs-approver">
+          <div class="msg ai"><div class="msg-sender" style="color:#2e7d32;">✅ Approver</div>Waiting for sourcing data to construct PO payload...</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div id="bottom">
+    <div class="card">
+      <div class="card-title">Live AI Activity Log</div>
+      <div class="card-sub">Real-time actions across all databases</div>
+      <div class="log-list" id="log-list"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+<script>
+(function(){
+"use strict";
+
+function $(id){ return document.getElementById(id) }
+function pad(n){ return String(n).padStart(2,"0") }
+
+// ── THREE.JS SETUP ─────────────────────────────────────────
+const scene = new THREE.Scene(); 
+scene.fog = new THREE.FogExp2(0x0a1118, 0.03);
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); 
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.05;
+controls.autoRotate = true; controls.autoRotateSpeed = 1.5;
+controls.enableZoom = true; controls.maxPolarAngle = Math.PI / 2 + 0.1;
+controls.target.set(0, 0, 0);
+
+const masterGroup = new THREE.Group(); scene.add(masterGroup);
+const loader = new THREE.GLTFLoader();
+let solidMeshes = [], wireframeMeshes = [];
+
+loader.load('object_0.glb', (gltf) => {
+    document.getElementById('loading-text').style.display = 'none';
+    const model = gltf.scene; 
+    model.scale.set(13, 13, 13); 
+    model.position.set(0, -1.5, 0); 
+    model.traverse((child) => {
+        if (child.isMesh) {
+            const materials = Array.isArray(child.material) ? child.material : [child.material];
+            materials.forEach(mat => { const newMat = mat.clone(); newMat.transparent = true; newMat.opacity = 0; newMat.metalness = 0.8; newMat.roughness = 0.3; child.material = newMat; solidMeshes.push(child); });
+            const wireGeo = new THREE.WireframeGeometry(child.geometry);
+            const wireMat = new THREE.LineBasicMaterial({ color: 0x00F0FF, transparent: true, opacity: 0.8 });
+            const wireMesh = new THREE.LineSegments(wireGeo, wireMat); child.add(wireMesh); wireframeMeshes.push(wireMesh);
+        }
+    });
+    masterGroup.add(model);
+}, undefined, (e) => { document.getElementById('loading-text').innerText = "3D MODULE STANDBY"; });
+
+let scrollProgress = 0; 
+window.addEventListener('wheel', (e) => {
+    scrollProgress += e.deltaY * 0.002; scrollProgress = Math.max(0, Math.min(1, scrollProgress)); 
+});
+
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.5); scene.add(ambientLight);
+const cyanLight = new THREE.PointLight(0x00F0FF, 6, 30); cyanLight.position.set(-8, 8, 8); scene.add(cyanLight);
+const goldLight = new THREE.PointLight(0xFFC72C, 5, 30); goldLight.position.set(8, -5, 5); scene.add(goldLight);
+camera.position.set(0, 2, 16);
+
+function animate3D() {
+    requestAnimationFrame(animate3D);
+    controls.update();
+    solidMeshes.forEach(mesh => { if(mesh.material) mesh.material.opacity = scrollProgress; });
+    wireframeMeshes.forEach(wire => { wire.material.opacity = 1.0 - scrollProgress; });
+    renderer.render(scene, camera);
+}
+animate3D();
+window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+
+
+// ── Dark mode (Sync with 3D) ───────────────────────────────
+var darkMode = true;
+$("dark-toggle").addEventListener("click", function(){
+  darkMode = !darkMode;
+  document.documentElement.setAttribute("data-theme", darkMode?"dark":"light");
+  if(darkMode){
+      document.body.classList.remove('light-gradient');
+      scene.fog.color.setHex(0x0a1118); ambientLight.intensity = 0.5; cyanLight.intensity = 6; goldLight.intensity = 5;
+  } else {
+      document.body.classList.add('light-gradient');
+      scene.fog.color.setHex(0xcbd5e1); ambientLight.intensity = 2.0; cyanLight.intensity = 0; goldLight.intensity = 0;
+  }
+});
+
+
+// ── Alert system ──────────────────────────────────────────
+var alertCooldowns = {};
+function showAlert(type, title, desc, color, icon, duration){
+  duration = duration||6000;
+  var key = type+title;
+  if(alertCooldowns[key]) return;
+  alertCooldowns[key] = true;
+  setTimeout(function(){ delete alertCooldowns[key]; }, 30000);
+
+  var stack = $("alert-stack");
+  var el = document.createElement("div");
+  el.className = "alert-toast";
+  el.innerHTML =
+    '<span class="alert-icon">'+icon+'</span>'+
+    '<div class="alert-body"><div class="alert-title" style="color:'+color+'">'+title+'</div><div class="alert-desc">'+desc+'</div></div>'+
+    '<button class="alert-close" onclick="this.closest(\'.alert-toast\').remove()">✕</button>'+
+    '<div class="alert-bar" style="background:'+color+';animation-duration:'+duration+'ms"></div>';
+  stack.appendChild(el);
+  setTimeout(function(){
+    el.classList.add("dismissing");
+    setTimeout(function(){ el.remove(); }, 350);
+  }, duration);
+}
+
+function updClock(){
+  var d=new Date(); $("clock").textContent=pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds());
+}
+
+
+// ── REAL AI WEBSOCKET LOGIC ───────────────────────────────
+var AGENT_COLORS = { scanner:"#2196f3", optimizer:"#ff6f00", approver:"#2e7d32" };
+var AGENT_ICONS  = { scanner:"🔍", optimizer:"⚡", approver:"✅" };
+var AGENT_NAMES  = { scanner:"Scanner", optimizer:"Optimizer", approver:"Approver" };
+
+function toggleChat(id){
+  var panel=$("chat-"+id);
+  var isOpen=panel.classList.contains("open");
+  ["scanner","optimizer","approver"].forEach(function(a){ $("chat-"+a).classList.remove("open") });
+  if(!isOpen) panel.classList.add("open");
+}
+window.toggleChat=toggleChat;
+
+function appendMsg(id, role, text){
+  var container=$("msgs-"+id);
+  var div=document.createElement("div");
+  div.className="msg "+(role==="user"?"user":"ai");
+  if(role==="ai") div.innerHTML='<div class="msg-sender" style="color:'+AGENT_COLORS[id]+'">'+AGENT_ICONS[id]+' '+AGENT_NAMES[id]+'</div>'+text;
+  else div.textContent=text;
+  container.appendChild(div);
+  container.scrollTop=container.scrollHeight;
+}
+
+var LOG_ENTRIES=[];
+function addLog(icon,bg,title,desc){
+  var d=new Date(); var timeStr = pad(d.getHours())+":"+pad(d.getMinutes());
+  LOG_ENTRIES.unshift({icon,bg,title,desc,time:timeStr});
+  if(LOG_ENTRIES.length>8) LOG_ENTRIES.pop();
+  var el=$("log-list"); el.innerHTML="";
+  LOG_ENTRIES.forEach(function(e){
+    var row=document.createElement("div"); row.className="log-item";
+    row.innerHTML='<div class="log-icon" style="color:'+e.bg+'">'+e.icon+'</div><div class="log-text"><div class="log-title">'+e.title+'</div><div class="log-desc">'+e.desc+'</div></div><div class="log-time">'+e.time+'</div>';
+    el.appendChild(row);
+  });
+}
+
+// ── FETCH REAL KPI DATA FROM ERP ──
+function fetchKPIs() {
+    fetch('http://127.0.0.1:8000/api/kpi-stats')
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === "success") {
+                $("kpi-demands").innerText = data.active_demands;
+                $("kpi-low").innerText = data.low_stock_items;
+                $("kpi-pos").innerText = data.pos_today;
+            }
+        })
+        .catch(err => {
+            console.error("KPI Error:", err);
+            $("kpi-demands").innerText = "Err";
+            $("kpi-low").innerText = "Err";
+            $("kpi-pos").innerText = "Err";
+        });
+}
+
+// Page load hote hi KPI fetch karo
+fetchKPIs();
+// Har 2 minute (120000 ms) mein KPI auto-refresh karo
+setInterval(fetchKPIs, 120000);
+
+// Connect to REAL Backend
+const ws = new WebSocket("ws://127.0.0.1:8000/ws/agent-logs");
+let currentPayload = null;
+
+ws.onmessage = function(event) {
+    const data = JSON.parse(event.data);
+    const taskName = data.task || "";
+    const messageText = data.message || "";
+    const routeKey = taskName.toLowerCase();
+
+    // Broadcast to Activity Log
+    let icon = "🤖", color = "#fff";
+    if (routeKey.includes("action") || routeKey.includes("approval")) { icon = "✅"; color = "#2e7d32"; }
+    else if (routeKey.includes("supplier") || routeKey.includes("cross") || routeKey.includes("sourcing")) { icon = "⚡"; color = "#ff6f00"; }
+    else if (routeKey.includes("scan") || routeKey.includes("low") || routeKey.includes("inventory")) { icon = "🔍"; color = "#2196f3"; }
+    addLog(icon, color, taskName, messageText);
+
+    // 🤖 AGENT 3: APPROVER
+    if (routeKey.includes("action required") || routeKey.includes("approval")) {
+        $("ticker-approver").querySelector(".ticker-text").textContent = taskName;
+        appendMsg("approver", "ai", messageText);
+        if (! $("chat-approver").classList.contains("open")) toggleChat("approver");
+
+        if (data.po_payload) {
+            currentPayload = data.po_payload;
+            $("btn-approve-action").style.display = "block";
+            $("chat-btn-approver").style.display = "none"; 
+            $("a3-po").innerText = data.po_payload.po_number || "PO-DRAFT";
+            $("a3-cost").innerText = "₹ " + data.po_payload.total_amount;
+        }
+        showAlert("approval", "Manager Action Required", "Draft PO is ready for your review.", "#2e7d32", "✅", 8000);
+    }
+    
+    // 🧠 AGENT 2: STRATEGIST
+    else if (routeKey.includes("cross-referencing") || routeKey.includes("supplier") || routeKey.includes("sourcing")) {
+        $("ticker-optimizer").querySelector(".ticker-text").textContent = taskName;
+        appendMsg("optimizer", "ai", messageText);
+        if (! $("chat-optimizer").classList.contains("open")) toggleChat("optimizer");
+        
+        if (routeKey.includes("optimal supplier") || routeKey.includes("match found")) {
+            // Extraction Logic
+            const supMatch = messageText.match(/Match Found:\s(.*?)\soffers/);
+            const priceMatch = messageText.match(/₹([\d.]+)/);
+            if (supMatch) $("a2-sup").innerText = supMatch[1];
+            if (priceMatch) $("a2-price").innerText = "₹ " + priceMatch[1];
+
+            showAlert("supplier", "Supplier Match Found", "Optimal vendor selected based on Lead Time.", "#ff6f00", "⚡", 6000);
+        } else if (routeKey.includes("alert") || routeKey.includes("failed")) {
+            $("a2-sup").innerText = "Not Found";
+            $("a2-price").innerText = "N/A";
+            showAlert("error", "Sourcing Alert", "No Supplier Data Linked. Automated PO halted.", "#FF4444", "🚫", 8000);
+        }
+    }
+    
+    // 🕵️‍♂️ AGENT 1: OBSERVER
+    else if (routeKey.includes("scan") || routeKey.includes("low stock") || routeKey.includes("inventory")) {
+        $("ticker-scanner").querySelector(".ticker-text").textContent = taskName;
+        appendMsg("scanner", "ai", messageText);
+        if (! $("chat-scanner").classList.contains("open")) toggleChat("scanner");
+        
+        if (routeKey.includes("low stock") || routeKey.includes("alert")) {
+            const nameSplit = taskName.split("Detected:");
+            if(nameSplit.length > 1) $("a1-item").innerText = nameSplit[1].trim();
+            
+            // 🛠️ FIX: Regex updated to capture only the exact shortage number
+            const shortMatch = messageText.match(/Exact Shortage:\s*([\d.]+)/);
+            if (shortMatch) {
+                $("a1-short").innerText = shortMatch[1]; 
+            }
+            
+            showAlert("scan", "Inventory Shortage", taskName, "#2196f3", "🔍", 7000);
+        } else if (routeKey.includes("complete") || routeKey.includes("clear")) {
+            $("a1-item").innerText = "All Clear";
+            $("a1-short").innerText = "0.0";
+        }
+    } 
+};
+
+// --- MANUAL TRIGGER ---
+window.triggerManualScan = function() {
+    fetch('http://127.0.0.1:8000/trigger-agent');
+    
+    // Reset UI
+    $("btn-approve-action").style.display = "none";
+    $("chat-btn-approver").style.display = "flex";
+    $("msgs-scanner").innerHTML = ""; $("msgs-optimizer").innerHTML = ""; $("msgs-approver").innerHTML = "";
+    
+    $("a1-item").innerText = "-"; $("a1-short").innerText = "-";
+    $("a2-sup").innerText = "-"; $("a2-price").innerText = "-";
+    $("a3-po").innerText = "-"; $("a3-cost").innerText = "-";
+
+    appendMsg("scanner", "ai", "Initiating fresh ERP database scan...");
+    appendMsg("optimizer", "ai", "Standing by for shortage data...");
+    appendMsg("approver", "ai", "Standing by for PO draft construction...");
+    
+    $("ticker-scanner").querySelector(".ticker-text").textContent = "Scanning databases...";
+    $("ticker-optimizer").querySelector(".ticker-text").textContent = "Awaiting data...";
+    $("ticker-approver").querySelector(".ticker-text").textContent = "Awaiting data...";
+    
+    toggleChat('scanner');
+}
+
+// --- APPROVAL ACTION ---
+$("btn-approve-action").addEventListener('click', function() {
+    if(!currentPayload) return;
+    const btn = this;
+    btn.innerText = "⏳ SAVING TO ERP...";
+    btn.style.background = "#ff6f00";
+
+    fetch('http://127.0.0.1:8000/api/confirm-po', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(currentPayload)
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === "success") {
+            btn.innerText = "✅ PO AUTHORIZED & SAVED";
+            btn.style.background = "#2e7d32";
+            appendMsg("approver", "ai", "Success! PO has been firmly inserted into the ERP database. Workflow complete.");
+            showAlert("success", "PO Authorized", "Purchase Order saved to Database.", "#2e7d32", "💾", 5000);
+            addLog("💾", "#2e7d32", "ERP Sync Complete", "New Purchase Order safely written to database.");
+        }
+    });
+});
+
+updClock();
+setInterval(updClock, 1000);
+setTimeout(function(){ showAlert("welcome","🏭 AI Online","Agent network connected to Real-Time ERP Data.","#2e7d32","🏭",5000) }, 1000);
+
+})();
+</script>
+</body>
+</html>

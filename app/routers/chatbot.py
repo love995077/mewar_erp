@@ -2567,6 +2567,7 @@ from app.schemas.chat import ChatRequest
 from app.services.ollama_engine import ask_ollama
 from app.services.nl2sql_engine import get_db_schema, generate_sql, format_answer
 
+#router = APIRouter(prefix="/v2-chatbot", tags=["Chatbot Final"])
 router = APIRouter(prefix="/chatbot", tags=["Chatbot Final"])
 
 # ── 1. SECURITY FIREWALL FUNCTION ──────────────────────────────────────────
@@ -2608,6 +2609,7 @@ _ERP_KEYWORDS = {
     "kitna", "kitne", "kahan", "kaisa", "kab", "lagao", "nikalo",
     "total", "list", "count", "kitni", "sabhi", "saare",
     "show", "find", "get", "check", "all", "mere", "mera",
+    "pr", "nos", "box", "roll", "kg", "ltr", "forwarded", "req"
 }
 
 _CLEANLY_OFFTOPIC = {
@@ -2641,7 +2643,6 @@ def log_query_pro(user_role, query, intents, final_results, process_time):
             f.write(json.dumps(log_entry, ensure_ascii=False, default=str) + "\n")
     except Exception as e: print(f"❌ Logger File Exception: {e}")
 
-
 # ── 4. THE 100% AI-DRIVEN ENGINE ────────────────────────────────────────
 def _nl2sql_response(raw_q: str, db, history: list = None) -> dict | None:
     history = history or []
@@ -2650,17 +2651,48 @@ def _nl2sql_response(raw_q: str, db, history: list = None) -> dict | None:
         schema_full = get_db_schema(db, compact=False)
         schema_compact = get_db_schema(db, compact=True)
         
-        # Generates SQL query using the new OpenAI powered nl2sql_engine
-        sql = generate_sql(raw_q, schema_full, schema_compact, history=history)
+        # Generates SQL query OR JSON (for PR Drafts) using nl2sql_engine
+        sql_or_json = generate_sql(raw_q, schema_full, schema_compact, history=history)
         
-        if not sql or not is_safe_sql(sql):
+        if not sql_or_json:
+            return None
+            
+        # 🚀 NAYA RULE: Check for WhatsApp Text / JSON Output
+        if sql_or_json.strip().startswith("{") and "PR_TEXT_IMPORT" in sql_or_json:
+            try:
+                parsed_data = json.loads(sql_or_json)
+                return {
+                    "results": [
+                        {"type": "chat", "message": "Maine aapke text se list extract kar li hai. Niche details check karein aur PR generate karein: 👇"},
+                        {
+                            "type": "pr_draft_action",
+                            "action": parsed_data.get("action", "PR_TEXT_IMPORT"),
+                            "items": parsed_data.get("items", [])
+                        }
+                    ]
+                }
+            except json.JSONDecodeError as e:
+                print(f"JSON Parse Error from AI: {e}")
+                pass # Agar parse nahi hua toh niche normal SQL flow mein chala jayega
+
+        # Agar JSON nahi hai, toh normal SQL ki tarah treat karo
+        sql = sql_or_json 
+        
+        if not is_safe_sql(sql):
             return None
             
         try: 
             result = db.execute(text(sql))
         except Exception as exec_err:
+            db.rollback()
             # Self-healing loop: if SQL fails, ask OpenAI to fix it
             sql = generate_sql(raw_q, schema_full, schema_compact, previous_sql=sql, sql_error=str(exec_err), history=history)
+            
+            # Agar self-heal ke baad bhi JSON aaya (rare case), toh wapas check karo
+            if sql.strip().startswith("{") and "PR_TEXT_IMPORT" in sql:
+                parsed_data = json.loads(sql)
+                return {"results": [{"type": "pr_draft_action", "action": "PR_TEXT_IMPORT", "items": parsed_data.get("items", [])}]}
+                
             if not sql or not is_safe_sql(sql): return None
             result = db.execute(text(sql))
             
@@ -2677,7 +2709,12 @@ def _nl2sql_response(raw_q: str, db, history: list = None) -> dict | None:
         return {"results": parts}
         
     except Exception as e:
-        print(f"[NL2SQL Final Execution Alert] Failed: {e}")
+        import traceback
+        print("\n" + "🔥"*10 + " CRITICAL DATABASE ERROR " + "🔥"*10, flush=True)
+        print(f"Error Message: {str(e)}", flush=True)
+        traceback.print_exc() 
+        print("🔥"*45 + "\n", flush=True)
+        db.rollback()
         return None
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2690,6 +2727,16 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
     low_q = raw_q.lower()
     chat_history = getattr(request, "history", []) 
     user_role = getattr(request, "role", "guest").lower().strip()
+
+    # 🛑 GUARD 0: KILL SWITCH (Remote Maintenance Check)
+    from app.services.love_brain import is_maintenance_active
+    if is_maintenance_active():
+        return {
+            "results": [{
+                "type": "chat", 
+                "message": "⚠️ **Mewar ERP Chatbot is currently under maintenance.** We are performing some updates, please try again in a little while! 🙏"
+            }]
+        }
 
     # 🛑 GUARD 1: Off-Topic Security Firewall
     if _is_off_topic(raw_q) and not bool(chat_history):
@@ -2710,6 +2757,31 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
             except: pass
         else:
             return {"results": [{"type": "chat", "message": f"Aapka current active status '{user_role.title()}' hai. Aapko Item Codes / Barcode ID se directly view karne ki permissions restricted hain. 🛑"}]}
+        
+    # 🛑 GUARD 2.5: Fast-Track Valuation (100% Match with Gen-UI, NO CTE/WITH clause)
+    if any(w in low_q for w in ["valuation", "stock value", "total value"]):
+        try:
+            val_sql = """
+                SELECT SUM((COALESCE(t.total_in, 0) - COALESCE(t.total_out, 0)) * COALESCE(i.rate, 0.0))
+                FROM inventories i 
+                LEFT JOIN (
+                    SELECT inventory_id,
+                    SUM(CASE WHEN LOWER(txn_type) = 'in' AND (LOWER(ref_type) != 'finish' OR ref_type IS NULL OR ref_type = '') THEN quantity ELSE 0 END) as total_in,
+                    SUM(CASE WHEN LOWER(txn_type) = 'out' AND (LOWER(ref_type) != 'machining' OR ref_type IS NULL OR ref_type = '') THEN quantity ELSE 0 END) as total_out
+                    FROM stock_transactions GROUP BY inventory_id
+                ) t ON i.id = t.inventory_id
+                WHERE i.is_deleted = 0 AND (COALESCE(t.total_in, 0) - COALESCE(t.total_out, 0)) > 0
+            """
+            total_val = float(db.execute(text(val_sql)).scalar() or 0.0)
+            
+            val_in_cr = round(total_val / 10000000, 2) if total_val >= 10000000 else round(total_val / 100000, 2)
+            unit_str = "Cr" if total_val >= 10000000 else "Lakhs"
+            
+            msg = f"Aapke current stock ki total valuation **₹{total_val:,.2f}** ({val_in_cr} {unit_str}) hai. 📊"
+            return {"results": [{"type": "chat", "message": msg}]}
+        except Exception as e:
+            print(f"Valuation Fast-Track Failed: {e}")
+            pass # Agar fail hua toh normal AI engine sambhal lega
 
     # 🔒 GUARD 3: Role Security Firewall Checks (Early Check)
     if user_role not in ["superadmin", "super admin"]:
@@ -2721,13 +2793,11 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
         if any(w in low_q for w in ["project", "site"]) and "project" not in allowed_perms: 
             return {"results": [{"type": "chat", "message": "Aapke user profile ko Projects management systems open karne ki permission nahi hai. 🛑"}]}
 
-    # 🧠 EXECUTE STEP 1: Process Query through Ollama Engine (Replaces FAISS/Manual Logic)
+    # 🧠 EXECUTE STEP 1: Process Query through Ollama Engine
     try:
-        # Ollama gets the intent and conversational reasoning directly
         ai_data = ask_ollama(raw_q, chat_history)
     except Exception as e:
         print(f"❌ AI Core Exception: {str(e)}")
-        # If Intent engine fails, jump directly to NL2SQL
         nl2_r = _nl2sql_response(raw_q, db, history=chat_history)
         return nl2_r if nl2_r else {"results": [{"type": "chat", "message": "Bhai, mera AI brain abhi connect nahi ho pa raha. 🙏"}]}
 
@@ -2738,13 +2808,6 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
         target = raw_q
 
     # =========================================================================
-    # 🧠 NAYA AMBIGUITY & BRIDGE LOGIC
-    # =========================================================================
-    words = low_q.split()
-    # Check karo ki user ne koi specific action manga hai kya?
-    has_action = any(w in low_q for w in ["order", "po", "bill", "profile", "detail", "stock", "qty", "kitna"])
-
-    # =========================================================================
     # 🧠 SMART AUTO-DETECT (PROJECT VS SUPPLIER) & AMBIGUITY GATE
     # =========================================================================
     words = low_q.split()
@@ -2752,10 +2815,7 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
     has_action = any(w in low_q for w in action_words)
 
     # 🛑 1. DIRECT DATABASE PRE-CHECK (Entity Resolution)
-    # Agar user ne sirf 1-3 words ka naam likha hai aur koi action word nahi hai
     if len(words) <= 3 and not has_action:
-        
-        # Check 1: Kya ye naam Project list mein hai?
         proj_check = db.execute(text(f"SELECT name FROM projects WHERE name LIKE '%{raw_q}%' AND is_deleted=0 LIMIT 1")).fetchone()
         if proj_check:
             target = proj_check[0]
@@ -2766,7 +2826,6 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
                 }]
             }
 
-        # Check 2: Kya ye naam Supplier list mein hai?
         sup_check = db.execute(text(f"SELECT supplier_name FROM suppliers WHERE supplier_name LIKE '%{raw_q}%' LIMIT 1")).fetchone()
         if sup_check:
             target = sup_check[0]
@@ -2776,20 +2835,18 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
                     "message": f"hmm.. **{target}** ek **Supplier** ke roop mein mil gaye hain. 🤝 Bhai, aapko inki Profile dekhni hai ya Purchase Orders? 🤔"
                 }]
             }
-    # 🌉 2. BRIDGE LOGIC: Agar action hai (ya button click hua hai), toh clear instruction banao
+
+    # 🌉 2. BRIDGE LOGIC: Default to raw query
     sql_query = raw_q
     
     # 🧠 CONTEXT MEMORY (Short-Term Memory Fix)
     if len(words) <= 3 and chat_history:
         try:
-            # Pichli chat ka aakhri message uthao
             last_msg = chat_history[-1].get("content", "") if isinstance(chat_history[-1], dict) else getattr(chat_history[-1], "content", "")
-            # Usme se bold kiya hua naam (target) nikaalo, jaise **Mahipal Singh**
             import re
             match = re.search(r'\*\*(.*?)\*\*', last_msg)
             if match:
                 past_target = match.group(1)
-                # Nayi query banao pichle context ke sath
                 if "inventory" in low_q:
                     sql_query = f"{past_target} project ki inventory batao"
                 elif "detail" in low_q or "profile" in low_q:
@@ -2799,19 +2856,10 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
         except Exception as e:
             pass
 
-    # Agar memory use nahi hui, toh normal chalao
-    elif len(words) <= 5: 
-        # 🟢 NAYA ANALYTICS BYPASS: In words ko normal search mat samjho
-        if any(word in low_q for word in ["grn", "top", "highest", "sabse", "latest", "recent"]): 
-            sql_query = raw_q
-        elif "supplier_search" in intents:
-            sql_query = f"Show all profile details for supplier: '{target}'"
-        elif "po_search" in intents:
-            sql_query = f"Show purchase orders where PO number OR supplier name matches '{target}'"
-        elif "project_search" in intents:
-            sql_query = f"Show project details and budget for: '{target}'"
-        elif "search" in intents:
-            sql_query = f"Show total stock and placement for inventory item: '{target}'"
+    # 🟢 NEW FIX: Agar memory use nahi hui, toh apna dimaag mat lagao, 
+    # seedha user ka original sawal Gen UI wale NL2SQL engine ko bhej do!
+    else: 
+        sql_query = raw_q
 
     # 🧠 EXECUTE STEP 2: Process NL2SQL
     final_response = _nl2sql_response(sql_query, db, history=chat_history)
@@ -2846,7 +2894,6 @@ async def process_chat_message(user_text: str) -> str:
                 res_type = res.get("type")
                 if res_type == "chat": final_whatsapp_text += res.get("message", "") + "\n\n"
                 elif res_type == "nl2sql_table":
-                    # Simple text formatting for tables
                     for row in res.get("rows", []):
                         final_whatsapp_text += " | ".join(str(v) for v in row.values()) + "\n"
                     final_whatsapp_text += "\n"

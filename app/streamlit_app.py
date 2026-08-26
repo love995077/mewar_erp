@@ -299,11 +299,32 @@ def render_bot_response(data, msg_idx):
                             st.session_state.rs_item_count = 1
                             
         
-        # 💬 CASE 9: Simple Text
+        # 💬 CASE 9: Simple Text & Dynamic Buttons (UPDATED)
         elif "message" in res and not res_type:
             st.write(res["message"])
+            
         elif res_type == "chat":
             st.write(res["message"])
+            
+            # 🔘 AUTO-DETECTOR MAGIC: Agar AI "Profile ya Order" pooch raha hai, toh khud buttons bana do!
+            msg_lower = res["message"].lower()
+            if "profile" in msg_lower and "order" in msg_lower and "?" in msg_lower:
+                st.markdown("**Choose an option:**")
+                c1, c2 = st.columns(2)
+                # set_next_query use kar rahe hain taaki button dabte hi automatically AI ko message chala jaye
+                c1.button("👤 Show Profile Details", key=f"prof_btn_{msg_idx}", on_click=set_next_query, args=("inki profile details dikhao",))
+                c2.button("📦 Show Purchase Orders", key=f"po_btn_{msg_idx}", on_click=set_next_query, args=("inke orders dikhao",))
+            
+            # Agar backend ne explicitly options (buttons) bheje hain
+            elif "options" in res:
+                cols = st.columns(len(res["options"]))
+                for i, opt in enumerate(res["options"]):
+                    cols[i].button(
+                        opt["label"], 
+                        key=f"opt_btn_{msg_idx}_{i}", 
+                        on_click=set_next_query, 
+                        args=(opt["value"],)
+                    )
 
         # 📊 CASE 10: NL2SQL RAW TABLE (Fallback result)
         elif res_type == "nl2sql_table":
